@@ -1,0 +1,357 @@
+---
+title: 'Bugs'
+description: 'Query, create, and update bugs using the Launchpad web service API.'
+keywords: ['launchpad', 'api', 'bugs', 'bugtask', 'bug search', 'rest']
+---
+
+The bugs API exposes Launchpad's bug tracker. Each bug is a top-level resource. Bug tasks (the pairing of a bug with a specific project, distribution, or package) track status, importance, and assignees per target.
+
+## Get a bug
+
+```bash
+GET /api/devel/bugs/{id}
+```
+
+```bash
+curl https://api.launchpad.net/devel/bugs/1
+```
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+bug = lp.bugs[1]
+print(bug.id, bug.title)
+```
+
+### Bug fields
+
+<ResponseField name="id" type="number" required>
+  The unique numeric bug ID.
+</ResponseField>
+
+<ResponseField name="title" type="string" required>
+  One-line summary of the problem. Maximum 200 characters.
+</ResponseField>
+
+<ResponseField name="description" type="string" required>
+  Detailed description of the problem, including steps to reproduce. Maximum 50,000 characters.
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Optional short nickname for the bug (e.g. `crash-on-startup`).
+</ResponseField>
+
+<ResponseField name="private" type="boolean">
+  Whether this bug is private. Private bugs are visible only to subscribers.
+</ResponseField>
+
+<ResponseField name="information_type" type="string">
+  The information type. One of `Public`, `PublicSecurity`, `PrivateSecurity`, `UserData`, `Proprietary`, `Embargoed`.
+</ResponseField>
+
+<ResponseField name="security_related" type="boolean">
+  Whether this bug represents a security vulnerability.
+</ResponseField>
+
+<ResponseField name="date_created" type="string">
+  ISO 8601 datetime when the bug was filed.
+</ResponseField>
+
+<ResponseField name="date_last_updated" type="string">
+  ISO 8601 datetime of the most recent change.
+</ResponseField>
+
+<ResponseField name="date_last_message" type="string">
+  ISO 8601 datetime of the most recent comment.
+</ResponseField>
+
+<ResponseField name="owner" type="object">
+  Link to the `IPerson` who filed the bug.
+</ResponseField>
+
+<ResponseField name="duplicate_of" type="object">
+  Link to another bug that this bug is a duplicate of, or `null`.
+</ResponseField>
+
+<ResponseField name="duplicates" type="object[]">
+  Collection of bugs that are marked as duplicates of this bug.
+</ResponseField>
+
+<ResponseField name="tags" type="string[]">
+  List of tag strings for classifying this bug.
+</ResponseField>
+
+<ResponseField name="heat" type="number">
+  A computed score reflecting how many users are affected and recent activity.
+</ResponseField>
+
+<ResponseField name="users_affected_count" type="number">
+  Number of users who have marked themselves as affected (excluding duplicates).
+</ResponseField>
+
+<ResponseField name="number_of_duplicates" type="number">
+  Count of bugs marked as duplicates of this one.
+</ResponseField>
+
+<ResponseField name="message_count" type="number">
+  Total number of comments on this bug.
+</ResponseField>
+
+<ResponseField name="bug_tasks" type="object[]">
+  Collection of bug task resources for this bug.
+</ResponseField>
+
+<ResponseField name="attachments" type="object[]">
+  Collection of file attachments linked to this bug.
+</ResponseField>
+
+<ResponseField name="cves" type="object[]">
+  Collection of CVE references linked to this bug.
+</ResponseField>
+
+<ResponseField name="lock_status" type="string">
+  Lock status of the bug. Available in `devel` version. One of `Unlocked`, `Comment-Only`.
+</ResponseField>
+
+<ResponseField name="lock_reason" type="string">
+  Reason the bug was locked, if applicable.
+</ResponseField>
+
+## Create a bug
+
+Creating a bug requires authentication. A bug must be filed against a specific target (project or distribution).
+
+```bash
+POST /api/devel/bugs
+```
+
+<ParamField body="title" type="string" required>
+  One-line summary of the problem. Maximum 200 characters.
+</ParamField>
+
+<ParamField body="description" type="string" required>
+  Detailed description of the problem. Maximum 50,000 characters.
+</ParamField>
+
+<ParamField body="target" type="string" required>
+  URL of the target resource (a project, distribution, or source package) where this bug should be filed.
+</ParamField>
+
+<ParamField body="tags" type="string[]">
+  Space-separated or list of tag strings.
+</ParamField>
+
+<ParamField body="information_type" type="string">
+  One of `Public`, `PublicSecurity`, `PrivateSecurity`, `UserData`, `Proprietary`, `Embargoed`. Defaults to `Public`.
+</ParamField>
+
+<CodeGroup>
+
+```python launchpadlib
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_with('my-app', 'production', version='devel')
+
+# File a bug against a project — use lp.bugs.createBug() with a target
+project = lp.projects['firefox']
+bug = lp.bugs.createBug(
+    title='Crash on startup with --profile flag',
+    description='Firefox crashes immediately when launched with --profile /tmp/test.\n\nSteps to reproduce:\n1. Run: firefox --profile /tmp/test\n2. Observe crash.',
+    target=project,
+    tags=['crash', 'startup']
+)
+print('Created bug:', bug.id)
+```
+
+```bash curl
+TIMESTAMP=$(date +%s)
+NONCE=$(openssl rand -hex 8)
+
+curl -s -X POST \
+  -H "Authorization: OAuth realm=\"https://api.launchpad.net\",oauth_consumer_key=\"my-app\",oauth_token=\"TOKEN_KEY\",oauth_signature_method=\"PLAINTEXT\",oauth_signature=\"TOKEN_SECRET&\",oauth_timestamp=\"$TIMESTAMP\",oauth_nonce=\"$NONCE\",oauth_version=\"1.0\"" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "ws.op=createBug" \
+  --data-urlencode "title=Crash on startup with --profile flag" \
+  --data-urlencode "description=Firefox crashes immediately when launched with --profile." \
+  --data-urlencode "target=https://api.launchpad.net/devel/firefox" \
+  https://api.launchpad.net/devel/bugs
+```
+
+</CodeGroup>
+
+## Update a bug
+
+Writable fields can be updated with a PATCH request. Requires authentication and appropriate permission.
+
+```bash
+PATCH /api/devel/bugs/{id}
+```
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_with('my-app', 'production', version='devel')
+bug = lp.bugs[12345]
+bug.title = 'Updated: Crash on startup with --profile flag'
+bug.tags = ['crash', 'startup', 'regression']
+bug.lp_save()
+```
+
+## Bug tasks
+
+A bug task represents the bug as it applies to a specific software target. Each bug has one or more tasks. Tasks track per-target status, importance, and assignee.
+
+```bash
+GET /api/devel/bugs/{id}/bug_tasks
+```
+
+```python
+for task in bug.bug_tasks:
+    print(task.bug_target_name, task.status, task.importance, task.assignee)
+```
+
+### Bug task fields
+
+<ResponseField name="status" type="string">
+  Current status of the task. One of: `New`, `Incomplete`, `Opinion`, `Invalid`, `Won't Fix`, `Expired`, `Confirmed`, `Triaged`, `In Progress`, `Deferred`, `Fix Committed`, `Fix Released`, `Does Not Exist`.
+</ResponseField>
+
+<ResponseField name="importance" type="string">
+  Priority level. One of: `Unknown`, `Undecided`, `Critical`, `High`, `Medium`, `Low`, `Wishlist`.
+</ResponseField>
+
+<ResponseField name="assignee" type="object">
+  Link to the `IPerson` assigned to fix this task, or `null`.
+</ResponseField>
+
+<ResponseField name="milestone" type="object">
+  Link to the milestone this task is targeted for, or `null`.
+</ResponseField>
+
+<ResponseField name="bug_target_name" type="string">
+  Human-readable name of the target (e.g. `firefox`, `ubuntu`).
+</ResponseField>
+
+<ResponseField name="bug_target_display_name" type="string">
+  Short display name of the target.
+</ResponseField>
+
+<ResponseField name="date_created" type="string">
+  ISO 8601 datetime when this task was created.
+</ResponseField>
+
+<ResponseField name="date_assigned" type="string">
+  ISO 8601 datetime when someone was assigned, or `null`.
+</ResponseField>
+
+<ResponseField name="date_confirmed" type="string">
+  ISO 8601 datetime when this task reached Confirmed status.
+</ResponseField>
+
+<ResponseField name="date_fix_released" type="string">
+  ISO 8601 datetime when this task reached Fix Released.
+</ResponseField>
+
+<ResponseField name="is_complete" type="boolean">
+  Whether this task is resolved (no further work needed).
+</ResponseField>
+
+<ResponseField name="status_explanation" type="string">
+  Optional explanation for the current status. Available in `devel` version.
+</ResponseField>
+
+<ResponseField name="importance_explanation" type="string">
+  Optional explanation for the current importance. Available in `devel` version.
+</ResponseField>
+
+### Update a bug task
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_with('my-app', 'production', version='devel')
+bug = lp.bugs[12345]
+
+for task in bug.bug_tasks:
+    if task.bug_target_name == 'firefox':
+        task.status = 'Confirmed'
+        task.importance = 'High'
+        task.lp_save()
+        break
+```
+
+## Search bugs
+
+Search bugs using named operations on a bug target (project, distribution, etc.) or globally.
+
+```bash
+GET /api/devel/{target}?ws.op=searchTasks&{params}
+```
+
+Example: find all critical bugs assigned to a user in the Ubuntu project:
+
+```bash
+curl "https://api.launchpad.net/devel/ubuntu?ws.op=searchTasks&importance=Critical&assignee=https://api.launchpad.net/devel/~username"
+```
+
+### Search parameters
+
+<ParamField query="status" type="string">
+  Filter by bug task status. Can be repeated for multiple values. E.g. `New`, `Confirmed`, `In Progress`.
+</ParamField>
+
+<ParamField query="importance" type="string">
+  Filter by importance. E.g. `Critical`, `High`, `Medium`.
+</ParamField>
+
+<ParamField query="assignee" type="string">
+  URL of a person resource. Returns only tasks assigned to this person.
+</ParamField>
+
+<ParamField query="bug_reporter" type="string">
+  URL of a person resource. Returns only bugs filed by this person.
+</ParamField>
+
+<ParamField query="bug_subscriber" type="string">
+  URL of a person resource. Returns only bugs this person is subscribed to.
+</ParamField>
+
+<ParamField query="tags" type="string">
+  Comma-separated list of tags. Returns bugs matching any of these tags by default.
+</ParamField>
+
+<ParamField query="tags_combinator" type="string" default="Any">
+  `Any` to match bugs with at least one of the given tags. `All` to require all tags.
+</ParamField>
+
+<ParamField query="has_patch" type="boolean">
+  Filter to only bugs with attached patches.
+</ParamField>
+
+<ParamField query="milestone" type="string">
+  URL of a milestone resource. Returns only tasks targeted to that milestone.
+</ParamField>
+
+<ParamField query="component" type="string">
+  Filter by source package component (distributions only).
+</ParamField>
+
+<ParamField query="order_by" type="string">
+  Sort field. E.g. `-importance`, `datecreated`, `-heat`.
+</ParamField>
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+ubuntu = lp.distributions['ubuntu']
+
+tasks = ubuntu.searchTasks(
+    status=['New', 'Confirmed'],
+    importance=['Critical', 'High'],
+    order_by='-importance'
+)
+for task in tasks:
+    print(task.bug.id, task.importance, task.status, task.bug.title)
+```

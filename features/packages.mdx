@@ -1,0 +1,201 @@
+---
+title: Packages
+description: Build and publish Ubuntu packages using Personal Package Archives (PPAs) and Launchpad's build farm.
+keywords: [ppa, packages, soyuz, binary builds, apt, publishing, archives, source packages]
+---
+
+Launchpad's packaging system (internally known as Soyuz) lets you upload source packages, build them against Ubuntu series and architectures, and publish the resulting binaries in an apt-compatible archive.
+
+## Personal Package Archives
+
+A Personal Package Archive (PPA) is a private apt repository hosted on Launchpad. PPAs allow you to:
+
+- Publish unofficial or pre-release versions of packages.
+- Test new upstream releases without waiting for them to land in Ubuntu.
+- Distribute your own software to Ubuntu users.
+
+Each PPA belongs to a person or team and is hosted at a URL like:
+
+```
+https://launchpad.net/~owner/+archive/ubuntu/ppa-name
+```
+
+### Enabling a PPA in apt
+
+```bash
+# Install add-apt-repository (if not already installed)
+sudo apt install software-properties-common
+
+# Add the PPA
+sudo add-apt-repository ppa:owner/ppa-name
+
+# Update and install a package from the PPA
+sudo apt update
+sudo apt install package-name
+```
+
+<Note>
+Private PPAs require a subscription. Launchpad generates a personalised apt auth token that you include in your `sources.list` entry.
+</Note>
+
+## Archive types
+
+Launchpad supports several archive purposes (`ArchivePurpose`):
+
+| Type | Description |
+|---|---|
+| `Primary` | The main Ubuntu archive. |
+| `PPA` | A Personal Package Archive. |
+| `Partner` | The archive for partner/ISV packages. |
+| `Copy` | A generalised copy archive used for rebuilds and snapshots. |
+
+## Archive status
+
+| Status | Description |
+|---|---|
+| `Active` | Accepts uploads, copy operations, and publishes packages. |
+| `Deleting` | User-requested deletion in progress. |
+| `Deleted` | Archive has been deleted and removed from disk. |
+
+## Uploading source packages
+
+<Steps>
+  <Step title="Prepare your source package">
+    Ensure your package has a valid `debian/changelog` with the target Ubuntu series name and that all files are properly signed with your GPG key.
+  </Step>
+  <Step title="Build the source package">
+    ```bash
+    debuild -S -sa
+    ```
+    This produces a `.dsc` file, an `.orig.tar.gz`, and a `.changes` file.
+  </Step>
+  <Step title="Upload with dput">
+    Configure `~/.dput.cf` with your PPA details:
+    ```ini
+    [my-ppa]
+    fqdn = ppa.launchpad.net
+    method = ftp
+    incoming = ~owner/ubuntu/ppa-name
+    login = anonymous
+    allow_unsigned_uploads = 0
+    ```
+    Then upload:
+    ```bash
+    dput my-ppa your-package_version_source.changes
+    ```
+  </Step>
+  <Step title="Wait for processing">
+    Launchpad validates the upload, checks GPG signatures, and either accepts or rejects it. You receive an email with the result.
+  </Step>
+</Steps>
+
+## Upload queue statuses
+
+Uploads pass through the following states (`PackageUploadStatus`):
+
+| Status | Meaning |
+|---|---|
+| `New` | Brand-new package or binary; must be reviewed before acceptance. |
+| `Unapproved` | Technically valid but awaiting human approval (e.g., during a freeze). |
+| `Accepted` | Passed all checks; publishing records will be created. |
+| `Done` | Publishing records created; fully processed. |
+| `Rejected` | Did not meet technical or policy requirements. |
+
+## Package publishing statuses
+
+Once accepted, a package moves through publishing states (`PackagePublishingStatus`):
+
+| Status | Meaning |
+|---|---|
+| `Pending` | Accepted into the series; awaiting addition to the published disk area. |
+| `Published` | Currently available in the archive. |
+| `Superseded` | A newer version has been published; this version is no longer active. |
+| `Deleted` | Removed from the archive by user request. |
+| `Obsolete` | Series became obsolete; packages will be removed during domination. |
+
+## Distribution series and pockets
+
+Packages in Ubuntu are published to a specific **pocket** within a distribution series. Pockets are defined in `PackagePublishingPocket`:
+
+| Pocket | Purpose |
+|---|---|
+| `Release` | The main pocket for the series release. |
+| `Security` | Security updates only. |
+| `Updates` | Bug-fix updates published after release. |
+| `Proposed` | Candidate updates pending community verification. |
+| `Backports` | Newer upstream software backported to an older series. |
+
+## Binary package builds
+
+When a source package is accepted, Launchpad dispatches binary builds to the build farm for each architecture supported by the target series. Common architectures include `amd64`, `arm64`, `armhf`, `i386`, `ppc64el`, `riscv64`, and `s390x`.
+
+Build results are tracked with `BuildStatus` (see [Builds](/features/builds) for details).
+
+## Package copy operations
+
+You can copy a package from one archive to another — for example, to promote a package from a PPA into a distribution series, or to copy between PPAs.
+
+Copy operation statuses (`PackageCopyStatus`):
+
+| Status | Meaning |
+|---|---|
+| `New` | Copy requested but not yet started. |
+| `In progress` | Copy is running. |
+| `Complete` | Copy succeeded. |
+| `Failed` | Copy failed. |
+| `Canceling` | User cancelled; cancellation in progress. |
+| `Cancelled` | Cancelled by the user. |
+
+## Binary package formats
+
+Launchpad handles several binary package formats (`BinaryPackageFormat`):
+
+| Format | Description |
+|---|---|
+| `DEB` | Standard Ubuntu/Debian binary package. |
+| `UDEB` | Installer package used during the Ubuntu installation process. |
+| `DDEB` | Ubuntu debug symbols package. |
+| `Python Wheel` | Python wheel (`.whl`) format per PEP 427. |
+| `Conda v1` | Conda package format `.tar.bz2` (v1). |
+| `Conda v2` | Conda package format `.conda` (v2, introduced in Conda 4.7). |
+| `Crate` | Rust crate package format. |
+| `Generic` | Generic binary file produced by a CI build. |
+
+## Source package formats
+
+Launchpad accepts Debian source packages in these formats (`SourcePackageFormat`):
+
+| Format | Description |
+|---|---|
+| `1.0` | Native (single `.tar.gz`) or non-native (`.orig.tar.gz` + `.diff.gz`). Gzip only. |
+| `3.0 (quilt)` | Non-native with `.orig.tar.*` and `debian.tar.*`. Supports gzip, bzip2, xz. |
+| `3.0 (native)` | Native package with a single `.tar.*`. Supports gzip, bzip2, xz. |
+
+## Archive repository formats
+
+Beyond the standard Debian apt format, Launchpad can publish to several repository formats (`ArchiveRepositoryFormat`):
+
+| Format | Description |
+|---|---|
+| `Debian` | Standard Debian/Ubuntu apt archive. |
+| `Python` | Python Package Index (PEP 301). |
+| `Conda` | Conda channel. |
+| `Go` | Go module proxy layout. |
+| `Rust` | Rust package index. |
+| `Generic` | Basic name/version layout without indexing. |
+
+## Publishing methods
+
+Archives can publish via `LOCAL` (using apt-ftparchive or direct database writes) or `ARTIFACTORY` (via JFrog Artifactory) (`ArchivePublishingMethod`).
+
+## Package priorities
+
+Binary packages carry a priority that indicates how important they are to a standard installation (`PackagePublishingPriority`):
+
+| Priority | Description |
+|---|---|
+| `Required` | Essential; `dpkg` may become unusable without it. |
+| `Important` | Expected on any standard UNIX system. |
+| `Standard` | Installed by default; provides a basic character-mode userland. |
+| `Optional` | Reasonable to install if requirements are unknown. |
+| `Extra` | Conflicts with higher-priority packages or serves very specialised needs. |

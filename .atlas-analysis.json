@@ -1,0 +1,95 @@
+{
+  "projectType": "saas",
+  "projectName": "Launchpad",
+  "projectDescription": "An open source collaboration platform for software projects, providing bug tracking, code hosting, package publishing, translations, and build services.",
+  "theme": "maple",
+  "primaryColor": "#caaf3b",
+  "lightColor": "#ae345c",
+  "darkColor": "#ea5d2c",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/bugs",
+              "features/code-hosting",
+              "features/packages",
+              "features/translations",
+              "features/blueprints",
+              "features/builds"
+            ]
+          },
+          {
+            "group": "Configuration & Deployment",
+            "pages": [
+              "deployment/setup",
+              "deployment/configuration",
+              "deployment/database",
+              "deployment/services"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "contributing/development",
+              "contributing/testing",
+              "contributing/security"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Web Service API",
+            "pages": [
+              "api/overview",
+              "api/authentication",
+              "api/bugs",
+              "api/code",
+              "api/packages",
+              "api/people"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Bug tracking with external bug tracker integration (Bugzilla, GitHub, GitLab, etc.)",
+    "Git and Bazaar code hosting with merge proposals",
+    "Personal Package Archives (PPA) for Ubuntu package publishing",
+    "Rosetta translation platform for software internationalization",
+    "Blueprint/specification tracking for project planning",
+    "Build farm for Snap, Charm, OCI, and Debian packages",
+    "REST web service API via lazr.restful",
+    "OpenID-based single sign-on authentication",
+    "Team and person management with role-based access control",
+    "Librarian file storage service"
+  ],
+  "publicApiSurface": [
+    "GET /api/devel/bugs/{id} — Retrieve a bug by ID",
+    "GET /api/devel/people/{name} — Retrieve a person or team",
+    "GET /api/devel/distributions/{name} — Retrieve a distribution",
+    "GET /api/devel/~{person}/+archive/{name} — Retrieve a PPA archive",
+    "POST /api/devel/bugs — Create a new bug",
+    "PATCH /api/devel/bugs/{id} — Update a bug",
+    "GET /api/devel/{project}/+git — List Git repositories for a project",
+    "GET /api/devel/{project}/+branches — List branches for a project",
+    "GET /api/devel/snaps/{id} — Retrieve a Snap package",
+    "GET /api/devel/charms/{id} — Retrieve a Charm package",
+    "ILaunchpad XMLRPC interface — Internal XML-RPC API for services"
+  ]
+}

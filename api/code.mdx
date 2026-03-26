@@ -1,0 +1,278 @@
+---
+title: 'Code'
+description: 'Access Git repositories, branches, and merge proposals using the Launchpad web service API.'
+keywords: ['launchpad', 'api', 'git', 'repository', 'merge proposal', 'branches', 'code review']
+---
+
+The code API exposes Launchpad's Git hosting and code review functionality. You can list repositories for projects and users, read branch information, and query merge proposals.
+
+## List repositories for a project
+
+```bash
+GET /api/devel/{project}/+git
+```
+
+```bash
+curl https://api.launchpad.net/devel/launchpad/+git
+```
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+project = lp.projects['launchpad']
+for repo in project.git_repositories:
+    print(repo.unique_name, repo.git_https_url)
+```
+
+## Get a specific repository
+
+Repositories are addressed by owner and name:
+
+```bash
+GET /api/devel/~{owner}/{project}/+git/{name}
+```
+
+```bash
+curl https://api.launchpad.net/devel/~username/launchpad/+git/my-repo
+```
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+repos = lp.git_repositories
+repo = repos.getByPath(path='~username/launchpad/+git/my-repo')
+print(repo.display_name)
+print(repo.git_https_url)
+print(repo.git_ssh_url)
+```
+
+### Repository fields
+
+<ResponseField name="id" type="number" required>
+  Unique numeric identifier for this repository.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  The repository name.
+</ResponseField>
+
+<ResponseField name="unique_name" type="string">
+  Full unique path: `~owner/project/+git/name`.
+</ResponseField>
+
+<ResponseField name="display_name" type="string">
+  Human-readable display name.
+</ResponseField>
+
+<ResponseField name="git_identity" type="string">
+  Short `lp:` identity if this is the default repository for its target (e.g. `lp:firefox`), otherwise `lp:~owner/project/+git/name`.
+</ResponseField>
+
+<ResponseField name="git_https_url" type="string">
+  HTTPS clone URL, or `null` for private repositories.
+</ResponseField>
+
+<ResponseField name="git_ssh_url" type="string">
+  `git+ssh://` clone URL.
+</ResponseField>
+
+<ResponseField name="owner" type="object">
+  Link to the `IPerson` or team that owns this repository.
+</ResponseField>
+
+<ResponseField name="registrant" type="object">
+  Link to the `IPerson` who registered this repository.
+</ResponseField>
+
+<ResponseField name="target" type="object">
+  Link to the project, distribution source package, or OCI project this repository targets. Available in `devel` version.
+</ResponseField>
+
+<ResponseField name="information_type" type="string">
+  Visibility type. One of `Public`, `PublicSecurity`, `PrivateSecurity`, `UserData`, `Proprietary`, `Embargoed`.
+</ResponseField>
+
+<ResponseField name="owner_default" type="boolean">
+  Whether this is the default repository for its owner and target.
+</ResponseField>
+
+<ResponseField name="target_default" type="boolean">
+  Whether this is the default repository for its target.
+</ResponseField>
+
+<ResponseField name="date_created" type="string">
+  ISO 8601 datetime when this repository was created.
+</ResponseField>
+
+<ResponseField name="date_last_repacked" type="string">
+  ISO 8601 datetime of the last repack.
+</ResponseField>
+
+<ResponseField name="pack_count" type="number">
+  Number of packs in this repository.
+</ResponseField>
+
+<ResponseField name="loose_object_count" type="number">
+  Number of loose objects in this repository.
+</ResponseField>
+
+<ResponseField name="refs" type="object[]">
+  All references (branches and tags) present in this repository.
+</ResponseField>
+
+<ResponseField name="branches" type="object[]">
+  Branch references only.
+</ResponseField>
+
+<ResponseField name="subscribers" type="object[]">
+  Collection of persons subscribed to this repository.
+</ResponseField>
+
+## Get a specific ref (branch or tag)
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+repos = lp.git_repositories
+repo = repos.getByPath(path='~username/launchpad/+git/my-repo')
+
+# Get the main branch
+main = repo.getRefByPath(path='refs/heads/main')
+if main:
+    print(main.path, main.commit_sha1)
+```
+
+## List branches
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+repos = lp.git_repositories
+repo = repos.getByPath(path='~username/launchpad/+git/my-repo')
+
+for branch in repo.branches:
+    print(branch.path, branch.commit_sha1)
+```
+
+## Merge proposals
+
+Merge proposals (MPs) represent a request to merge one branch into another. They carry a review status and can have associated code review comments.
+
+### List merge proposals for a repository
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+repos = lp.git_repositories
+repo = repos.getByPath(path='~username/launchpad/+git/my-repo')
+
+for mp in repo.landing_targets:
+    print(mp.self_link, mp.queue_status)
+```
+
+### Merge proposal fields
+
+<ResponseField name="id" type="number" required>
+  Unique numeric identifier.
+</ResponseField>
+
+<ResponseField name="queue_status" type="string">
+  Current review status. One of `Work in progress`, `Needs review`, `Code approved`, `Rejected`, `Merged`, `Code failed to merge`, `Queued`, `Superseded`.
+</ResponseField>
+
+<ResponseField name="source_git_repository" type="object">
+  Link to the source `IGitRepository`.
+</ResponseField>
+
+<ResponseField name="source_git_path" type="string">
+  Branch path in the source repository (e.g. `refs/heads/feature-x`).
+</ResponseField>
+
+<ResponseField name="target_git_repository" type="object">
+  Link to the target `IGitRepository`.
+</ResponseField>
+
+<ResponseField name="target_git_path" type="string">
+  Branch path in the target repository (e.g. `refs/heads/main`).
+</ResponseField>
+
+<ResponseField name="prerequisite_git_repository" type="object">
+  Link to the prerequisite repository, if any.
+</ResponseField>
+
+<ResponseField name="commit_message" type="string">
+  The commit message to use when landing this proposal.
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Free-text description of the changes in this proposal.
+</ResponseField>
+
+<ResponseField name="registrant" type="object">
+  Link to the `IPerson` who created this proposal.
+</ResponseField>
+
+<ResponseField name="reviewer" type="object">
+  Link to the person or team requested to review.
+</ResponseField>
+
+<ResponseField name="date_created" type="string">
+  ISO 8601 datetime when this proposal was created.
+</ResponseField>
+
+<ResponseField name="date_reviewed" type="string">
+  ISO 8601 datetime when a final review decision was made.
+</ResponseField>
+
+<ResponseField name="date_merged" type="string">
+  ISO 8601 datetime when this proposal was merged.
+</ResponseField>
+
+<ResponseField name="private" type="boolean">
+  Whether this proposal is confidential.
+</ResponseField>
+
+### Filter merge proposals by status
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+project = lp.projects['launchpad']
+
+# Get merge proposals needing review
+proposals = project.getMergeProposals(status=['Needs review'])
+for mp in proposals:
+    print(mp.source_git_path, '->', mp.target_git_path)
+    print('  Registrant:', mp.registrant_link)
+    print('  Status:', mp.queue_status)
+```
+
+### Approve or reject a merge proposal
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_with('my-app', 'production', version='devel')
+
+# Get a merge proposal directly by URL
+mp_url = 'https://api.launchpad.net/devel/~user/project/+git/repo/+merge/123'
+mp = lp.load(mp_url)
+
+# Approve
+mp.approveBranch(
+    reviewer=lp.me,
+    revision_id='abc123'
+)
+
+# Or reject
+mp.rejectBranch(
+    reviewer=lp.me,
+    revision_id='abc123'
+)
+```

@@ -1,0 +1,296 @@
+---
+title: Development
+description: Developer workflow for contributing to Launchpad, including code style, tooling, and the CI pipeline.
+keywords: [contributing, development, code style, pre-commit, black, flake8, isort, CI]
+---
+
+Launchpad is developed using Launchpad itself for code hosting, code review, and CI. The canonical repository is at `https://git.launchpad.net/launchpad`.
+
+<Note>
+There is a full guide for getting a development environment running at [documentation.ubuntu.com/launchpad](https://documentation.ubuntu.com/launchpad/en/latest/how-to/running/).
+</Note>
+
+## Getting the source
+
+```bash
+git clone https://git.launchpad.net/launchpad
+```
+
+## Code style guide
+
+All Python code in Launchpad must pass the following tools. They run automatically as pre-commit hooks and in CI.
+
+<CardGroup cols={2}>
+  <Card title="Black" icon="paintbrush">
+    Formats Python code. Line length is **79** characters, targeting Python 3.8.
+  </Card>
+  <Card title="flake8" icon="magnifying-glass">
+    Lints Python code. Extended with `flake8-absolute-import` and `flake8-bugbear`.
+  </Card>
+  <Card title="isort" icon="arrow-up-down">
+    Sorts import statements. Uses the `black` profile with a line length of 79.
+  </Card>
+  <Card title="pyupgrade" icon="arrow-up-right">
+    Upgrades Python syntax to 3.8+ idioms.
+  </Card>
+</CardGroup>
+
+### Black configuration
+
+From `pyproject.toml`:
+
+```toml pyproject.toml
+[tool.black]
+line-length = 79
+target-version = ['py38']
+```
+
+### flake8 configuration
+
+From `setup.cfg`:
+
+```ini setup.cfg
+[flake8]
+exclude =
+    lib/contrib
+ignore =
+    B004, B006, B008, B011, B015, B020, B023, B028, B031,
+    E203,
+    E711, E712,
+    E731,
+    W503, W504
+enable-extensions = B1
+warn-symbols =
+    storm.base.Storm = Inherit from lp.services.database.stormbase.StormBase instead.
+    storm.locals.Storm = Inherit from lp.services.database.stormbase.StormBase instead.
+```
+
+<Note>
+Code under `lib/contrib/` is imported from upstream projects and is excluded from all linting.
+</Note>
+
+### isort configuration
+
+```ini setup.cfg
+[isort]
+known_first_party = canonical,lp,launchpad_loggerhead,fti,replication,preflight,security,upgrade,dbcontroller
+known_pythonpath = _pythonpath
+line_length = 79
+sections = FUTURE,PYTHONPATH,STDLIB,THIRDPARTY,FIRSTPARTY,LOCALFOLDER
+```
+
+### JavaScript
+
+JavaScript files are linted with ESLint (v9.12.0) and the `@microsoft/eslint-plugin-sdl` plugin. This runs automatically via the pre-commit hook.
+
+### Shell scripts
+
+Shell scripts are checked with `shellcheck`.
+
+### Doctests
+
+Docstrings containing doctests are formatted with `blackdoc` (line length 78) and validated with `lp-lint-doctest`.
+
+### Spell checking
+
+`codespell` runs on `.js` and `.rst` files. Add false positives to `.codespell-ignore`.
+
+### Security scanning
+
+`bandit` runs at high severity level. Configuration is in `pyproject.toml`:
+
+```toml pyproject.toml
+[tool.bandit]
+exclude_dirs = [".tox", "env", "htmlcov", ".coverage", "tests", "testing"]
+```
+
+## Pre-commit hooks
+
+Install pre-commit and then install the hooks:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+The full hook list (from `.pre-commit-config.yaml`):
+
+| Hook | Purpose |
+|---|---|
+| `check-added-large-files` | Blocks files larger than 550 KB |
+| `check-ast` | Validates Python syntax |
+| `check-merge-conflict` | Detects leftover merge conflict markers |
+| `check-json` | Validates JSON files |
+| `check-xml` | Validates XML files |
+| `check-yaml` | Validates YAML files |
+| `debug-statements` | Catches `pdb`/`breakpoint()` calls left in code |
+| `file-contents-sorter` | Keeps `.codespell-ignore` sorted |
+| `no-commit-to-branch` | Prevents direct commits to `master` and `db-devel` |
+| `pyupgrade` | Upgrades to Python 3.8+ syntax |
+| `black` | Formats Python |
+| `isort` | Sorts imports |
+| `flake8` | Lints Python |
+| `eslint` | Lints JavaScript |
+| `blackdoc` | Formats doctests |
+| `lp-lint-doctest` | Validates doctests |
+| `shellcheck` | Lints shell scripts |
+| `codespell` | Checks spelling in JS and RST files |
+| `bandit` | Security-scans Python at high severity |
+
+Run all hooks manually against every file:
+
+```bash
+pre-commit run --all-files
+```
+
+## Writing new modules
+
+Use `standard_template.py` as a starting point for any new Python module:
+
+```python standard_template.py
+# Copyright 2023 Canonical Ltd.  This software is licensed under the
+# GNU Affero General Public License version 3 (see the file LICENSE).
+
+"""XXX: Module docstring goes here."""
+
+__all__ = []
+```
+
+Replace the `XXX` placeholder with a real module docstring. Populate `__all__` with the names you want to export.
+
+## ZCML configuration for new components
+
+Every Launchpad package registers its components through a `configure.zcml` file. A typical package configure file:
+
+```xml configure.zcml
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    xmlns:browser="http://namespaces.zope.org/browser"
+    xmlns:lp="http://namespaces.canonical.com/lp"
+    i18n_domain="launchpad">
+
+  <!-- Register security adapters from this package's security.py -->
+  <lp:authorizations module=".security" />
+
+  <!-- Include browser sub-package -->
+  <include package=".browser"/>
+
+  <!-- Register a utility -->
+  <lp:securedutility
+      class="lp.mypackage.model.mything.MyThingSet"
+      provides="lp.mypackage.interfaces.mything.IMyThingSet">
+      <allow interface="lp.mypackage.interfaces.mything.IMyThingSet"/>
+  </lp:securedutility>
+
+  <!-- Expose an interface on a class -->
+  <class class="lp.mypackage.model.mything.MyThing">
+      <allow interface="lp.mypackage.interfaces.mything.IMyThing"/>
+  </class>
+
+</configure>
+```
+
+The `<lp:authorizations module=".security" />` directive wires up all `AuthorizationBase` subclasses defined in the package's `security.py` to the Zope security machinery.
+
+## Running the development environment
+
+See the [running guide](https://documentation.ubuntu.com/launchpad/en/latest/how-to/running/) for the full setup. The short version once inside the LXC container:
+
+```bash
+# Start all services and open a Python harness
+bin/run
+
+# Or start just the app server
+bin/run-testapp
+```
+
+## Submitting merge proposals
+
+Launchpad uses its own Launchpad instance for code review. Push your branch to `git.launchpad.net` and open a merge proposal there.
+
+<Steps>
+  <Step title="Push your branch">
+    ```bash
+    git push origin my-feature-branch
+    ```
+  </Step>
+  <Step title="Open a merge proposal">
+    Visit `https://code.launchpad.net/launchpad` and propose your branch for merging into `master`.
+  </Step>
+  <Step title="Address review comments">
+    Push additional commits to the same branch. The merge proposal updates automatically.
+  </Step>
+  <Step title="Land the branch">
+    Once approved, the reviewer or a bot lands the branch.
+  </Step>
+</Steps>
+
+See [contributing changes](https://documentation.ubuntu.com/launchpad/en/latest/how-to/contributing-changes/) for the full process.
+
+## CI pipeline
+
+The CI pipeline is defined in `.launchpad.yaml` and runs two stages sequentially:
+
+```yaml .launchpad.yaml
+pipeline:
+  - lint
+  - mypy
+
+jobs:
+  lint:
+    architectures: amd64
+    packages:
+      - tox
+      - git
+    run: tox -e lint
+    series: focal
+  mypy:
+    architectures: amd64
+    packages:
+      - tox
+    run: tox -e mypy
+    series: focal
+```
+
+### Lint stage
+
+Runs `tox -e lint`, which executes `pre-commit run --all-files --show-diff-on-failure`. This is the same set of checks as the local pre-commit hooks.
+
+```ini tox.ini
+[testenv:lint]
+skip_install = true
+deps = pre-commit
+commands = pre-commit run --all-files --show-diff-on-failure
+```
+
+### Mypy stage
+
+Runs `tox -e mypy`, which type-checks a curated set of packages:
+
+```ini tox.ini
+[testenv:mypy]
+skip_install = true
+deps =
+    mypy
+    -r requirements/types.txt
+commands_pre =
+    {toxinidir}/scripts/update-version-info.sh
+commands =
+    mypy --follow-imports=silent \
+    {posargs:lib/lp/answers lib/lp/app lib/lp/archivepublisher \
+    lib/lp/archiveuploader lib/lp/buildmaster lib/lp/code/subscribers \
+    lib/lp/testing ...}
+```
+
+<Tip>
+Run both stages locally before pushing:
+
+```bash
+tox -e lint
+tox -e mypy
+```
+</Tip>
+
+<Note>
+Mypy is described as running "from outside the LXC container on Python 3.6+". You do not need to be inside the container to run the type-check stage.
+</Note>

@@ -1,0 +1,153 @@
+---
+title: Blueprints
+description: Plan features and track their progress with Launchpad's blueprint (specification) system.
+keywords: [blueprints, specifications, specs, planning, milestones, feature tracking]
+---
+
+Blueprints (also called specifications or specs) are structured planning documents for new features and significant changes. They track a feature from initial proposal through review, approval, and implementation.
+
+## Overview
+
+Each blueprint captures:
+
+- A title and summary of the feature.
+- A link to a full specification document (often a wiki page).
+- The current definition status and implementation status.
+- The people responsible: drafter, approver, and assignee.
+- Dependencies on other blueprints.
+- Milestones and targeted series.
+- A whiteboard for informal notes and discussion.
+
+## Definition statuses
+
+Definition status (`SpecificationDefinitionStatus`) tracks the quality and approval state of the specification document itself:
+
+| Status | Meaning |
+|---|---|
+| `New` | No thought yet given to implementation strategy, dependencies, or UI. |
+| `Discussion` | Requires active discussion, e.g., at a sprint. |
+| `Drafting` | Actively being drafted; a drafter is in place and revisions are frequent. |
+| `Review` | In a reviewer's queue for assessment of clarity and completeness. |
+| `Pending Approval` | Reviewed and ready for final approval sign-off. |
+| `Approved` | The project team believes the specification is ready to implement. |
+| `Superseded` | Replaced by a newer specification; see the replacement. |
+| `Obsolete` | The feature has been decided against; no effort should be spent on it. |
+
+<Note>
+Use `Drafting` only while the spec is being actively worked on. Do not leave a spec in the `Drafting` state indefinitely.
+</Note>
+
+## Implementation statuses
+
+Implementation status (`SpecificationImplementationStatus`) tracks how far along the actual coding work is:
+
+| Status | Meaning |
+|---|---|
+| `Unknown` | No information available about implementation progress. |
+| `Not started` | No work has been done yet. |
+| `Deferred` | Will not be delivered in the targeted release; effectively deferred. |
+| `Needs Infrastructure` | Blocked on missing servers, databases, or system administration work. |
+| `Blocked` | Blocked on another unimplemented specification. |
+| `Started` | Work has begun but has not yet been published in branches or archives. |
+| `Slow progress` | Work is progressing slowly; at risk of missing the targeted release. |
+| `Good progress` | On track for delivery in the targeted release. |
+| `Beta Available` | A substantially complete beta has been published in a PPA or personal release. |
+| `Needs Code Review` | Implementation is complete and ready for final review and sign-off. |
+| `Deployment` | Implemented and ready to deploy; awaiting the operations team. |
+| `Implemented` | Delivered for the targeted release; no further work necessary. |
+| `Informational` | This specification is informational and requires no implementation. |
+
+## Lifecycle statuses
+
+The lifecycle status (`SpecificationLifecycleStatus`) is a simpler three-state summary:
+
+| Status | Meaning |
+|---|---|
+| `Not started` | No work has begun. |
+| `Started` | Under active development. |
+| `Complete` | No further work expected (either done or abandoned). |
+
+## Priorities
+
+Priority (`SpecificationPriority`) indicates how urgently the feature needs to be built:
+
+| Priority | Meaning |
+|---|---|
+| `Essential` | Focus of current development; must ship in the next release. |
+| `High` | Strongly desired; will definitely receive review time. |
+| `Medium` | Will be done eventually, but perhaps not in the next release. |
+| `Low` | Sound idea; will be incorporated if work is contributed, but will not receive core resources. |
+| `Undefined` | Not yet evaluated or prioritized. |
+| `Not` | Proposed but decided against for the mainline codebase. |
+
+## People roles
+
+Three roles can be assigned to a blueprint:
+
+<CardGroup cols={3}>
+  <Card title="Approver" icon="check">
+    Responsible for reviewing the specification document and giving final approval. Typically a project driver or team lead.
+  </Card>
+  <Card title="Drafter" icon="pencil">
+    Responsible for writing and refining the specification text. Used primarily during sprints when drafting is a bottleneck.
+  </Card>
+  <Card title="Assignee" icon="user">
+    The person responsible for implementing the feature described by the specification.
+  </Card>
+</CardGroup>
+
+## Work items
+
+Blueprints support granular work items — individual tasks within a specification, each with its own status (`SpecificationWorkItemStatus`):
+
+| Status | Meaning |
+|---|---|
+| `Todo` | Not yet done. |
+| `In progress` | Currently being worked on. |
+| `Done` | Completed. |
+| `Postponed` | Intentionally put off. |
+| `Blocked` | Cannot proceed until something else is resolved. |
+
+Work item completion percentage feeds into release planning burn-down charts.
+
+## Milestones and series targeting
+
+A blueprint can be targeted to a **series** (e.g., Ubuntu 24.04 or a project release series) and to a specific **milestone** within that series. Targeting is a two-step process:
+
+<Steps>
+  <Step title="Propose the blueprint">
+    Propose the blueprint as a goal for a series. It enters the `Proposed` goal status.
+  </Step>
+  <Step title="Driver acceptance">
+    A series driver reviews the proposal and either accepts or declines it (`SpecificationGoalStatus`: `Accepted`, `Declined`, or `Proposed`).
+  </Step>
+  <Step title="Milestone assignment">
+    Once accepted, the assignee or a driver sets the milestone to indicate which specific release the feature is planned for.
+  </Step>
+</Steps>
+
+## Dependencies
+
+Blueprints can declare that they depend on other blueprints. Launchpad displays the dependency graph and highlights blocked items. The implementation status `Blocked` should be used when a blueprint cannot proceed because a dependency is not yet implemented.
+
+## Whiteboard
+
+The whiteboard is a free-form text field for notes, links, status updates, and informal discussion that does not belong in the formal specification document. It is visible to everyone who can see the blueprint and is not version-controlled.
+
+## Sprint scheduling
+
+Blueprints can be proposed for discussion at a sprint (an in-person or virtual planning meeting). Sprint organisers accept or decline proposals (`SprintSpecificationStatus`: `Accepted`, `Declined`, `Proposed`). Accepted blueprints appear on the sprint agenda.
+
+## Searching blueprints
+
+Blueprints can be filtered using `SpecificationFilter` criteria:
+
+- `All` — All blueprints.
+- `Incomplete` — Blueprints where implementation is not complete.
+- `Complete` — Blueprints where implementation is complete.
+- `Informational` — Blueprints that require no implementation.
+- `Proposed` / `Accepted` / `Declined` — By series goal status.
+- `Creator` / `Assignee` / `Approver` / `Drafter` / `Subscriber` — By person role.
+- `Started` — Blueprints where work has begun.
+
+Results can be sorted by `Priority` (default) or by creation `Date`.

@@ -1,0 +1,193 @@
+---
+title: Bug tracking
+description: Track, triage, and fix bugs across projects and distributions with Launchpad's integrated bug tracker, Malone.
+keywords: [bugs, malone, bug tracker, bug status, bug importance, external trackers, subscriptions]
+---
+
+Malone is the bug tracking component of Launchpad. It lets you file bugs against projects and distribution packages, link bugs to upstream trackers, subscribe to notifications, and coordinate fixes across multiple codebases.
+
+## Bug statuses
+
+Every bug task carries a status that describes where it stands in the fix lifecycle. Statuses come from `BugTaskStatus` in `lib/lp/bugs/interfaces/bugtask.py`.
+
+| Status | Meaning |
+|---|---|
+| `New` | Not yet examined by the project team. |
+| `Incomplete` | Awaiting more information from the reporter. |
+| `Opinion` | Does not fit the project direction; open for discussion. |
+| `Invalid` | Not a bug — may be a support request or spam. |
+| `Won't Fix` | Will not be fixed; conflicts with project plans. |
+| `Expired` | No activity for an extended period; automatically expired. |
+| `Confirmed` | Verified by someone other than the original reporter. |
+| `Triaged` | Verified and assessed by the bug supervisor. |
+| `In Progress` | The assigned developer is actively working on a fix. |
+| `Deferred` | Fix has been intentionally postponed. |
+| `Fix Committed` | Fixed in a branch or commit, but not yet in a release. |
+| `Fix Released` | Fix is available in a published release. |
+
+<Note>
+The `Incomplete` status is stored internally as `INCOMPLETE_WITH_RESPONSE` or `INCOMPLETE_WITHOUT_RESPONSE` depending on whether the reporter has replied since it was marked incomplete. Both map to `Incomplete` in the UI.
+</Note>
+
+## Bug importances
+
+Importance reflects how critical a bug is to fix, combining severity and frequency of impact.
+
+| Importance | Meaning |
+|---|---|
+| `Critical` | Fix immediately or as soon as possible. |
+| `High` | Schedule to fix soon. |
+| `Medium` | Fix when convenient, or schedule for a later release. |
+| `Low` | Fix when convenient. |
+| `Wishlist` | Not a bug — a feature request or enhancement. |
+| `Undecided` | Has not yet been evaluated. |
+| `Unknown` | Importance cannot be determined. |
+
+## Filing a bug
+
+<Steps>
+  <Step title="Navigate to the project or package">
+    Go to the project page (e.g., `launchpad.net/ubuntu`) or a source package page and click **Report a bug**.
+  </Step>
+  <Step title="Describe the bug">
+    Provide a concise title and a detailed description. Include steps to reproduce, expected behaviour, and actual behaviour.
+  </Step>
+  <Step title="Set the affected package or project">
+    Confirm the affected target. You can file the same bug against multiple packages or projects by adding extra bug tasks after filing.
+  </Step>
+  <Step title="Submit">
+    Click **Submit bug report**. The bug is created with status `New` and importance `Undecided`.
+  </Step>
+</Steps>
+
+## Bug tags and milestones
+
+Tags are free-form labels you can attach to a bug to aid filtering and search. Common conventions include `regression`, `crash`, `documentation`, and release-specific tags.
+
+Milestones associate a bug fix with a planned release. Setting a milestone signals that the bug should be fixed before that release ships. Only project drivers and bug supervisors can set milestones.
+
+## Marking duplicates
+
+If a bug has already been reported, you can mark it as a duplicate of the canonical report. The duplicate bug retains its own comments and subscribers, but status changes on the master bug are visible from the duplicate.
+
+<Warning>
+A bug cannot be marked as a duplicate of another bug that is itself already a duplicate (`InvalidDuplicateValue` error).
+</Warning>
+
+## Subscribing to bugs
+
+Subscriptions control the email you receive about a bug. You can set one of three notification levels (`BugNotificationLevel`):
+
+| Level | Notifications sent |
+|---|---|
+| `Lifecycle` | New bugs registered, bugs removed, or bug retargeted. |
+| `Details` | All lifecycle notifications plus changes to status, importance, and description. |
+| `Discussion` | All of the above plus new comments on the bug. |
+
+You can also subscribe a team to a bug, which delivers notifications to all team members according to their individual preferences.
+
+### Structural subscriptions
+
+Structural subscriptions let you subscribe to all bugs filed against a project, distribution, or source package, rather than subscribing bug by bug. Filters allow you to narrow the subscription by status, importance, tag, or reporter.
+
+## Searching and filtering bugs
+
+The bug search interface supports filtering by:
+
+- Status (one or more values from `BugTaskStatus`)
+- Importance
+- Tags (match any or all)
+- Assignee and reporter
+- Milestone
+- Date ranges
+- Text search across title and description
+
+<Tip>
+Use the **Advanced search** form to combine multiple criteria. The API endpoint `searchTasks` accepts the same parameters programmatically; passing invalid values raises `InvalidSearchParameters`.
+</Tip>
+
+## Bug lock status
+
+Bugs can be locked to restrict who may edit them (`BugLockStatus`):
+
+| Status | Effect |
+|---|---|
+| `Unlocked` | Normal permissions apply. |
+| `Comment-only` | Users without a relevant role may comment but cannot edit metadata (stored as `COMMENT_ONLY`). |
+
+## Vulnerability tracking
+
+Launchpad tracks security vulnerabilities independently of ordinary bugs. Vulnerabilities have their own status lifecycle (`VulnerabilityStatus`):
+
+| Status | Meaning |
+|---|---|
+| `Needs triage` | Not yet assessed. |
+| `Active` | Vulnerability is confirmed and active. |
+| `Ignored` | Intentionally not being addressed at this time. |
+| `Retired` | Vulnerability is resolved or no longer relevant. |
+
+Two import/export handlers are defined: `SOSS` and `UCT` (`VulnerabilityHandlerEnum`).
+
+## Linking bugs to upstream trackers
+
+Malone can watch a bug in an external tracker and import its status into Launchpad automatically. Supported tracker types (`BugTrackerType`):
+
+<AccordionGroup>
+  <Accordion title="Bugzilla">
+    The most widely deployed open-source bug tracker. Used by Mozilla, Red Hat, and many others. Launchpad syncs status from Bugzilla via its XML-RPC API.
+  </Accordion>
+  <Accordion title="Debbugs">
+    The email-based tracker used by the Debian project. Each bug is treated as a small mailing list.
+  </Accordion>
+  <Accordion title="GitHub Issues">
+    Issue tracker for projects hosted on GitHub. Launchpad syncs status via the GitHub REST API.
+  </Accordion>
+  <Accordion title="GitLab Issues">
+    Tracker for projects hosted on GitLab instances.
+  </Accordion>
+  <Accordion title="Trac">
+    Enhanced wiki and issue tracking system popular in Python projects.
+  </Accordion>
+  <Accordion title="Roundup">
+    Lightweight, customisable Python-based tracker.
+  </Accordion>
+  <Accordion title="Mantis">
+    Web-based tracker written in PHP.
+  </Accordion>
+  <Accordion title="Request Tracker (RT)">
+    Web-based ticketing system written in Perl.
+  </Accordion>
+  <Accordion title="SourceForge">
+    SourceForge and its derivatives including GForge, RubyForge, BerliOS, and JavaForge.
+  </Accordion>
+  <Accordion title="Savane">
+    Web-based project hosting with support tracking; best known via GNU Savannah.
+  </Accordion>
+  <Accordion title="Email address">
+    For projects that track bugs by email on a mailing list.
+  </Accordion>
+  <Accordion title="Google Code">
+    Google Code project hosting and issue tracking (now read-only).
+  </Accordion>
+  <Accordion title="PHP Project Bugtracker">
+    The tracker developed by the PHP project itself.
+  </Accordion>
+</AccordionGroup>
+
+To link a bug to an upstream report, open the bug and click **Also affects project** or **Link to upstream bug**, then enter the URL of the upstream report. Launchpad will identify the tracker type from the URL and begin watching the remote bug.
+
+## Bug watches
+
+A bug watch connects a Launchpad bug to a specific bug number in an external tracker. Once linked, Launchpad periodically polls the external tracker and imports any status changes. Each sync attempt is recorded as a `BugWatchActivity` entry with a `BugWatchActivityStatus`:
+
+| Status | Meaning |
+|---|---|
+| `Synchronisation succeeded` | The remote bug's status was successfully synced to Launchpad. |
+| `Bug Not Found` | The specified bug could not be found on the remote server. |
+| `Connection Error` | Launchpad was unable to connect to the remote server. |
+| `Invalid Bug ID` | The bug ID is not valid on the remote tracker. |
+| `Timeout` | The connection to the remote server timed out. |
+| `Unparsable Bug` | Status could not be extracted from the remote data. |
+| `Unsupported Bugtracker` | The remote tracker version is not supported. |
+| `Private Remote Bug` | The bug is private on the remote tracker; status cannot be imported. |
+| `Unknown` | An unexpected error occurred during sync. |

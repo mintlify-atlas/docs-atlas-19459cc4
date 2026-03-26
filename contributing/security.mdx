@@ -1,0 +1,205 @@
+---
+title: Security
+description: How to report security vulnerabilities, and how Launchpad's security policy is implemented using security adapters and ZCML declarations.
+keywords: [security, vulnerabilities, authorization, ZCML, security adapters, CVE]
+---
+
+## Reporting a security vulnerability
+
+<Warning>
+Do **not** publicly disclose a security vulnerability before discussing it with the Launchpad team.
+</Warning>
+
+<Steps>
+  <Step title="Contact the team privately">
+    Send an email to [feedback@launchpad.net](mailto:feedback@launchpad.net). Do not open a public bug report.
+  </Step>
+  <Step title="Include full details">
+    Your report should contain:
+    - A clear description of the vulnerability.
+    - Steps to reproduce the issue.
+    - The potential impact and which versions are affected.
+    - Suggested mitigations, if you have them.
+  </Step>
+  <Step title="Wait for acknowledgement">
+    The Launchpad team will review the report and may ask for further information or clarification.
+  </Step>
+  <Step title="CVE assignment and fix">
+    If the issue is confirmed as a valid security vulnerability, the team will assign a CVE and coordinate the release of a fix before any public disclosure.
+  </Step>
+</Steps>
+
+The [Ubuntu Security disclosure and embargo policy](https://ubuntu.com/security/disclosure-policy) describes what you can expect from the team and what the team expects from you.
+
+## How the security model works
+
+Launchpad uses the Zope security framework. Access to every object and operation is controlled by **security adapters** — Python classes that answer the question "does this person have this permission on this object?"
+
+### The `AuthorizationBase` class
+
+All security adapters extend `AuthorizationBase` from `lp.app.security`:
+
+```python lib/lp/app/security.py
+from lp.app.security import AuthorizationBase
+
+
+class EditMyThing(AuthorizationBase):
+    permission = "launchpad.Edit"
+    usedfor = IMyThing
+
+    def checkAuthenticated(self, user):
+        """Only the owner can edit."""
+        return user.isOwner(self.obj)
+
+    def checkUnauthenticated(self):
+        """Anonymous users cannot edit."""
+        return False
+```
+
+`checkAuthenticated` receives an `IPersonRoles` object representing the logged-in user. `checkUnauthenticated` is called for anonymous requests. Both methods return `True` to allow or `False` to deny.
+
+### Delegated authorization
+
+Use `DelegatedAuthorization` to forward a permission check to a related object:
+
+```python
+from lp.app.security import DelegatedAuthorization
+
+
+class EditMyThingAttachment(DelegatedAuthorization):
+    """Editing an attachment requires Edit on the parent thing."""
+
+    permission = "launchpad.Edit"
+    usedfor = IMyThingAttachment
+
+    def __init__(self, obj):
+        super().__init__(obj, obj.thing)
+```
+
+### Anonymous authorization
+
+For objects that are always publicly visible:
+
+```python
+from lp.app.security import AnonymousAuthorization
+from lp.mypackage.interfaces.mything import IMyThing
+
+
+class ViewMyThing(AnonymousAuthorization):
+    usedfor = IMyThing
+```
+
+## The `security.py` files
+
+Each Launchpad package places its security adapters in a `security.py` module:
+
+```
+lib/lp/
+├── security.py                      # Common/shared rules
+├── app/security.py                  # Base classes
+├── bugs/security.py                 # Rules for bugs
+├── code/security.py                 # Rules for code hosting
+├── registry/security.py             # Rules for projects, people, etc.
+├── soyuz/security.py                # Rules for archives/packages
+├── translations/security.py         # Rules for Rosetta
+└── services/
+    ├── auth/security.py
+    ├── identity/security.py
+    ├── librarian/security.py
+    ├── messages/security.py
+    ├── oauth/security.py
+    ├── openid/security.py
+    ├── webhooks/security.py
+    └── webapp/security.py
+```
+
+The root `lib/lp/security.py` contains shared role-based adapters that are reused across packages, such as `AdminByAdminsTeam`, `OnlyRosettaExpertsAndAdmins`, and `ViewByLoggedInUser`.
+
+## ZCML security declarations
+
+Security adapters are wired up through ZCML. Each package's `configure.zcml` includes the following directive to register all adapters defined in its `security.py`:
+
+```xml configure.zcml
+<lp:authorizations module=".security" />
+```
+
+This scans the module for all classes that implement `IAuthorization` and registers them as named adapters for the `(interface, permission)` pair they declare.
+
+### Granting interface access on classes
+
+Once an authorization adapter permits access, you still need to declare which attributes of the class are accessible. This is done in `configure.zcml`:
+
+```xml configure.zcml
+<!-- Allow read access to the full IMyThing interface -->
+<class class="lp.mypackage.model.mything.MyThing">
+    <allow interface="lp.mypackage.interfaces.mything.IMyThing"/>
+</class>
+
+<!-- Allow specific attributes -->
+<class class="lp.mypackage.model.mything.MyThing">
+    <allow attributes="name description"/>
+    <require
+        permission="launchpad.Edit"
+        attributes="setName"/>
+</class>
+```
+
+### Secured utilities
+
+Use `<lp:securedutility>` to register a utility that enforces interface-level access control:
+
+```xml configure.zcml
+<lp:securedutility
+    class="lp.mypackage.model.mything.MyThingSet"
+    provides="lp.mypackage.interfaces.mything.IMyThingSet">
+    <allow interface="lp.mypackage.interfaces.mything.IMyThingSet"/>
+</lp:securedutility>
+```
+
+## Common permissions
+
+| Permission | Description |
+|---|---|
+| `launchpad.View` | Read access. By default, any logged-in user can view anything. |
+| `launchpad.Edit` | Modify an object. |
+| `launchpad.Append` | Add subordinate objects (e.g. comments, tasks). |
+| `launchpad.Delete` | Delete an object. |
+| `launchpad.Driver` | Approve releases, nominations, etc. |
+| `launchpad.Admin` | Administrative operations. |
+| `launchpad.Moderate` | Moderation actions. |
+| `launchpad.AnyAllowedPerson` | Any authenticated user who can also View. |
+| `launchpad.AnyLegitimatePerson` | Authenticated user with minimum karma/account age. |
+
+## Writing a new security adapter
+
+<Steps>
+  <Step title="Add the class to security.py">
+    Open (or create) the `security.py` file in your package and add a new subclass of `AuthorizationBase`:
+
+    ```python lib/lp/mypackage/security.py
+    from lp.app.security import AuthorizationBase
+    from lp.mypackage.interfaces.mything import IMyThing
+
+
+    class EditMyThing(AuthorizationBase):
+        permission = "launchpad.Edit"
+        usedfor = IMyThing
+
+        def checkAuthenticated(self, user):
+            return self.obj.owner == user.person
+    ```
+  </Step>
+  <Step title="Register authorizations in configure.zcml">
+    Ensure your package's `configure.zcml` contains:
+
+    ```xml configure.zcml
+    <lp:authorizations module=".security" />
+    ```
+  </Step>
+  <Step title="Declare attribute access in configure.zcml">
+    Add `<class>` declarations to expose the interface attributes that authorized users may access.
+  </Step>
+  <Step title="Write tests">
+    Test your adapter using `lp.testing.TestCaseWithFactory` and the `login_person` / `person_logged_in` helpers. Verify that both authenticated and anonymous access behaves correctly.
+  </Step>
+</Steps>

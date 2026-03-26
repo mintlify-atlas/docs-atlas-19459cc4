@@ -1,0 +1,193 @@
+---
+title: Code hosting
+description: Host Git repositories on Launchpad, propose merges, conduct code reviews, and import code from external sources.
+keywords: [git, code hosting, merge proposals, code review, branches, repositories, imports]
+---
+
+Launchpad hosts Git repositories and provides a complete code review workflow built around merge proposals. You can host personal, project, or distribution repositories, import code from external VCS systems, and link CI/CD pipeline results directly to commits.
+
+## Repository types
+
+Git repositories on Launchpad have a type that determines how Launchpad interacts with them (`GitRepositoryType`):
+
+| Type | Description |
+|---|---|
+| `Hosted` | Launchpad is the primary location. Push directly via SSH. |
+| `Imported` | Imported from an externally-hosted repository and mirrored into Launchpad. |
+| `Remote` | Registered with an external location but not mirrored or served through Launchpad. |
+
+Repository status (`GitRepositoryStatus`) is either `Creating` (being initialised on the hosting backend) or `Available` (ready to use).
+
+## Repository namespaces
+
+Every Launchpad Git repository lives in one of three namespaces:
+
+<CardGroup cols={3}>
+  <Card title="Personal" icon="user">
+    Owned by an individual or team, not attached to any project. URL format: `~owner/+git/repository-name`
+  </Card>
+  <Card title="Project" icon="folder">
+    Associated with a Launchpad project. URL format: `~owner/project/+git/repository-name`
+  </Card>
+  <Card title="Distribution package" icon="package">
+    Associated with a source package in a distribution. URL format: `~owner/distro/+source/package/+git/repository-name`
+  </Card>
+</CardGroup>
+
+Each project and distribution package can have a single **default repository** that is accessible without specifying the owner.
+
+## Connecting to a repository
+
+```bash
+# Clone the default repository for a project
+git clone git+ssh://git.launchpad.net/project-name
+
+# Clone a specific owner's repository
+git clone git+ssh://git.launchpad.net/~owner/project-name
+
+# Clone a personal repository
+git clone git+ssh://git.launchpad.net/~owner/+git/repo-name
+
+# Read-only access over HTTPS
+git clone https://git.launchpad.net/project-name
+```
+
+<Note>
+Push access requires SSH authentication with a public key registered in your Launchpad account. Set your SSH key at `launchpad.net/~/+editsshkeys`.
+</Note>
+
+## Merge proposals
+
+A merge proposal is a formal request to merge one branch or ref into another. The proposal tracks discussion, reviewer votes, and CI results in one place.
+
+### Merge proposal statuses
+
+Statuses come from `BranchMergeProposalStatus` in `lib/lp/code/enums.py`:
+
+| Status | Meaning |
+|---|---|
+| `Work in progress` | The source branch is still being worked on. |
+| `Needs review` | A review has been requested. |
+| `Approved` | Changes approved for merging. |
+| `Rejected` | Changes rejected in their current state. |
+| `Queued` | Queued for merging into the target. |
+| `Merged` | Successfully merged. |
+| `Code failed to merge` | Merge attempt failed (e.g., conflicts). |
+| `Superseded` | This proposal was replaced by a newer one. |
+
+### Submitting a merge proposal
+
+<Steps>
+  <Step title="Push your branch">
+    Push your feature branch to your Launchpad repository:
+    ```bash
+    git push origin my-feature
+    ```
+  </Step>
+  <Step title="Open the proposal">
+    Visit your repository on Launchpad and click **Propose for merging**. Select the source and target branches and add a description of the changes.
+  </Step>
+  <Step title="Request reviewers">
+    Add one or more reviewers. Launchpad notifies them by email.
+  </Step>
+  <Step title="Address review comments">
+    Reviewers can comment on specific lines of the diff or leave general comments. Push additional commits to update the proposal automatically.
+  </Step>
+  <Step title="Get approved and merge">
+    Once the required approvals are in place and all merge criteria are satisfied, the proposal can be merged.
+  </Step>
+</Steps>
+
+### Reviewer votes
+
+Reviewers cast a vote from `CodeReviewVote`:
+
+| Vote | Meaning |
+|---|---|
+| `Approve` | Reviewer wants the merge to happen. |
+| `Needs Fixing` | Some fixing is needed before approval. |
+| `Needs Information` | Reviewer needs more context before deciding. |
+| `Abstain` | Reviewer cannot or does not want to decide. |
+| `Needs Resubmitting` | The idea is sound but the implementation needs significant rework. |
+| `Disapprove` | Reviewer does not want the merge to happen. |
+
+### Merge criteria
+
+Before a merge proposal can be merged, Launchpad checks several criteria (`MergeProposalCriteria`):
+
+- `is_in_progress` — The proposal is in the right state.
+- `has_no_conflicts` — The source branch has no merge conflicts with the target.
+- `diff_is_up_to_date` — The preview diff reflects the latest commits.
+- `has_no_pending_prerequisite` — Any prerequisite merge proposal has already landed.
+- `is_approved` — The proposal has received the required approvals.
+- `CI_checks_passed` — All CI checks have passed.
+
+## Branch lifecycle statuses
+
+For Bazaar branches (the legacy code hosting system), lifecycle status (`BranchLifecycleStatus`) describes maturity:
+
+| Status | Description |
+|---|---|
+| `Experimental` | Under active development; not suitable for merging. |
+| `Development` | Shaping up but incomplete or untested. |
+| `Mature` | Stable and ready for merging. |
+| `Merged` | Successfully merged; no further development expected. |
+| `Abandoned` | Development stopped without merging. |
+
+## CI/CD pipeline results
+
+Launchpad stores CI check results for individual commits (`RevisionStatusResult`):
+
+| Result | Meaning |
+|---|---|
+| `Waiting` | Check job is queued. |
+| `Running` | Check job is currently executing. |
+| `Succeeded` | Check job completed successfully. |
+| `Failed` | Check job failed. |
+| `Skipped` | Check job was not run. |
+| `Cancelled` | Check job was cancelled. |
+
+Artifacts produced by a CI run can be of type `Log` (the build log) or `Binary` (arbitrary files made available for download).
+
+Merge proposals display the CI results for their source branch's latest commit. The `CI_checks_passed` merge criterion enforces that all checks succeed before merging is allowed.
+
+## Repository access controls
+
+Access grants on a repository (`GitPermissionType`) can be:
+
+- `Can create` — Create new refs.
+- `Can push` — Push commits to existing refs.
+- `Can force-push` — Force-push to refs (overwrite history).
+
+Grants can be made to specific individuals, teams, or to the repository owner (`GitGranteeType`: `REPOSITORY_OWNER` or `PERSON`). All grant changes are recorded in the repository's activity log (`GitActivityType`).
+
+## Importing code from external repositories
+
+Launchpad can import a Git repository hosted elsewhere and keep a local mirror up to date.
+
+Import review statuses (`CodeImportReviewStatus`):
+
+| Status | Description |
+|---|---|
+| `Pending Review` | Import request filed but not yet reviewed. |
+| `Reviewed` | Approved and being processed on schedule. |
+| `Suspended` | Approved but temporarily paused. |
+| `Invalid` | Will not be processed. |
+| `Failed` | Failing repeatedly and no longer being attempted. |
+
+Import job results (`CodeImportResultStatus`) include `SUCCESS`, `SUCCESS_NOCHANGE`, `SUCCESS_PARTIAL`, `FAILURE`, `FAILURE_INVALID`, `FAILURE_UNSUPPORTED_FEATURE`, `FAILURE_FORBIDDEN`, and `FAILURE_REMOTE_BROKEN`.
+
+<Tip>
+You can request an immediate import run by clicking **Import now** on the code import page, which triggers a `REQUEST` event in the import event log.
+</Tip>
+
+## Viewing diffs and commenting
+
+The merge proposal diff view shows a unified diff of all changes between the source and target. You can:
+
+- Click any line to add an inline comment.
+- Reply to existing inline comments in a threaded view.
+- Leave general comments on the proposal as a whole.
+- Download the diff as a plain-text file.
+
+Branch subscribers can control the size of diffs they receive by email (`BranchSubscriptionDiffSize`): no diff, up to 500 lines, up to 1000 lines, up to 5000 lines, or the entire diff.

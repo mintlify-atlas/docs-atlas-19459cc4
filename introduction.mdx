@@ -1,0 +1,146 @@
+---
+title: "Introduction"
+description: "Launchpad is Canonical's open source collaboration platform for software projects — covering bug tracking, code hosting, package publishing, translations, and build services."
+keywords: ["launchpad", "canonical", "ubuntu", "open source", "collaboration", "bug tracking", "PPA"]
+---
+
+Launchpad is an open source suite of tools that help people and teams work together on software projects. Rather than a tool you install and run locally, Launchpad is primarily a hosted service at [launchpad.net](https://launchpad.net) — and the Launchpad source code itself is what you explore in this documentation.
+
+## History and background
+
+Launchpad was created by [Canonical](https://canonical.com), the company behind Ubuntu. It launched publicly in 2004 as the central collaboration infrastructure for Ubuntu and has grown to serve thousands of open source projects. In 2009, Canonical released Launchpad's source code under the GNU Affero General Public License version 3.
+
+Launchpad is built to handle the scale of Ubuntu development — coordinating hundreds of contributors, managing thousands of packages across multiple distribution series, and tracking bugs across the entire Ubuntu ecosystem.
+
+<Note>
+  Launchpad is licensed under the GNU Affero General Public License v3. The source code is hosted at [git.launchpad.net/launchpad](https://git.launchpad.net/launchpad). Canonical maintains the production instance at [launchpad.net](https://launchpad.net).
+</Note>
+
+## Main subsystems
+
+Launchpad is structured as a collection of integrated subsystems. Each subsystem has its own namespace under `lp.*` in the codebase and its own virtual host in the production deployment.
+
+### Bugs (Malone)
+
+The bug tracker, internally called Malone, lives at `bugs.launchpad.net`. It supports:
+
+- Filing and triaging bugs against projects and distributions
+- Cross-project bug linking and deduplication
+- External bug tracker synchronisation (Bugzilla, GitHub, GitLab, Trac, Roundup)
+- Email-based bug management
+- Bug subscriptions, milestones, and importance levels
+
+The `lp.bugs` package contains the bug tracker code, along with `lp.coop.answersbugs` which ties bugs and Q&A answers together.
+
+### Code hosting
+
+Code hosting lives at `code.launchpad.net` and is implemented in `lp.code`. It supports:
+
+- Git repository hosting with full push/pull over HTTPS and SSH
+- Legacy Bazaar (Breezy) branch hosting
+- Merge proposals with inline diffs, review comments, and CI status
+- Repository mirroring from external hosts
+- Code import from Git, Subversion, and other systems
+
+The `lp.codehosting` package handles the low-level VCS protocol daemon logic.
+
+### Soyuz (packages and archives)
+
+Soyuz is the package management subsystem, implemented in `lp.soyuz`. It handles:
+
+- **Personal Package Archives (PPAs)**: user-hosted apt repositories for Ubuntu
+- Distribution archive management (main, restricted, universe, multiverse)
+- Package upload processing and acceptance
+- Binary package builds dispatched to the build farm
+- Archive publication and index generation via `lp.archivepublisher`
+
+Uploads are processed by `lp.archiveuploader`.
+
+### Rosetta (translations)
+
+Rosetta is the crowdsourced translation platform, implemented in `lp.translations`. It provides:
+
+- Web-based translation of PO files for open source projects
+- Translation template (POT) import and management
+- Community contributions with reviewer workflows
+- Translation export in multiple formats
+- Automatic translation suggestions from existing translation memory
+
+### Blueprints
+
+Blueprints, implemented in `lp.blueprints`, is a lightweight specification tracking system:
+
+- Write and link specifications to projects and series
+- Assign priorities, milestones, and approvers
+- Track implementation progress
+- Link blueprints to bugs and branches
+
+### Answers (Q&A)
+
+The Answers system (`lp.answers`) is a question-and-answer forum tied to projects:
+
+- Ask and answer questions about a project
+- Link answers to relevant bugs
+- Email-based participation
+
+### Build farm
+
+The build farm is managed by `lp.buildmaster` and dispatches build jobs to remote builder machines. Build types include:
+
+| Package | Build type |
+|---|---|
+| `lp.soyuz` | Debian binary packages |
+| `lp.snappy` | Snap packages |
+| `lp.charms` | Charm operators |
+| `lp.oci` | OCI container images |
+| `lp.rocks` | Rock packages |
+| `lp.crafts` | Craft-based artefacts |
+| `lp.translations` | Translation templates |
+| `lp.code` | CI builds |
+
+## Who uses Launchpad
+
+Launchpad is primarily used by:
+
+- **Ubuntu and its derivatives**: All Ubuntu package archives, PPAs, translations, and release tracking run through Launchpad.
+- **Canonical projects**: Projects like Juju, MAAS, LXD, and Snapcraft use Launchpad for bug tracking and code.
+- **Open source upstreams**: Many projects use Launchpad PPAs to distribute packages to Ubuntu users, or use the bug tracker to triage Ubuntu-specific issues.
+
+## How the features connect
+
+Launchpad's subsystems are designed to be interlinked. A single workflow commonly touches multiple subsystems:
+
+1. A developer files a **bug** against an Ubuntu package (Malone).
+2. They create a **merge proposal** on a Git branch that fixes it (Code).
+3. The merge triggers a **CI build** on the build farm (buildmaster + code).
+4. After merging, a **package upload** is made to a PPA (Soyuz).
+5. The fix is added to a **blueprint** tracking the release milestone (Blueprints).
+
+The `lp.registry` package provides the core content model — projects, people, distributions, series — that every subsystem builds on. The `lp.app` package is the top-level application that integrates everything into a single web application.
+
+## Key links
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Create your account, file a bug, set up a PPA, and use the Python API client.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand the technical design: Zope framework, REST API, database layer, build farm, and Librarian.
+  </Card>
+  <Card title="Bug tracking" icon="bug" href="/features/bugs">
+    Learn how Malone bug tracking works, including external tracker sync and email integration.
+  </Card>
+  <Card title="Package publishing" icon="box" href="/features/packages">
+    Publish Ubuntu packages via PPAs and manage distribution archives.
+  </Card>
+  <Card title="Code hosting" icon="code-branch" href="/features/code-hosting">
+    Host Git repositories and manage merge proposals with review workflows.
+  </Card>
+  <Card title="Translations" icon="language" href="/features/translations">
+    Crowdsource software translations through the Rosetta platform.
+  </Card>
+</CardGroup>
+
+<Note>
+  If you want help using Launchpad as a hosted service, visit [help.launchpad.net](https://help.launchpad.net). If you want to contribute to the Launchpad codebase itself, see the [Contributing guide](/contributing/development).
+</Note>

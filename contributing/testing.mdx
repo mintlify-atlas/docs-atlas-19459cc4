@@ -1,0 +1,305 @@
+---
+title: Testing
+description: How to run, write, and structure tests for Launchpad, including unit tests, functional doctests, and YUI JavaScript tests.
+keywords: [testing, unit tests, doctests, functional tests, bin/test, tox, fixtures, factory]
+---
+
+Launchpad has a large test suite covering unit tests, functional (doctest) tests, browser story tests, and JavaScript integration tests. All tests live under `lib/` alongside the code they test.
+
+## Running the test suite
+
+<CodeGroup>
+
+```bash bin/test (all tests)
+bin/test
+```
+
+```bash bin/test (specific test)
+bin/test -t TestFoo
+```
+
+```bash bin/test (specific module)
+bin/test lib/lp/bugs/tests/
+```
+
+```bash make
+make test
+```
+
+</CodeGroup>
+
+### Useful `bin/test` flags
+
+| Flag | Description |
+|---|---|
+| `-t PATTERN` | Run only tests whose name matches `PATTERN` |
+| `-m MODULE` | Run tests from a specific module |
+| `-vvv` | Increase verbosity |
+| `--layer LAYER` | Run only tests in a specific layer |
+| `-j N` | Run tests in N parallel processes |
+
+```bash
+# Run a single test class
+bin/test -t TestBugTask
+
+# Run tests in a specific layer
+bin/test --layer DatabaseFunctionalLayer
+
+# Run with verbose output
+bin/test -vvv -t TestBugTask
+```
+
+## Test types
+
+<AccordionGroup>
+  <Accordion title="Unit tests">
+    Standard Python `unittest`-style tests that exercise a single class or function. Located in `tests/` subdirectories alongside the code being tested (e.g. `lib/lp/bugs/tests/test_bug.py`).
+
+    Unit tests that do not require database access use `BaseLayer`. Tests that need the database use `DatabaseFunctionalLayer` or `ZopelessDatabaseLayer`.
+  </Accordion>
+
+  <Accordion title="Functional (doctest) tests">
+    Narrative-style tests written as reStructuredText doctests, located in `doc/` subdirectories (e.g. `lib/lp/bugs/doc/bug.rst`). These test higher-level behaviour and are often used as living documentation.
+  </Accordion>
+
+  <Accordion title="Page / browser story tests">
+    End-to-end tests that drive a test browser through a sequence of page interactions. These live in `tests/` subdirectories and use the `PageTestLayer`. They are written as doctests and use `lp.testing.pages`.
+  </Accordion>
+
+  <Accordion title="YUI / JavaScript integration tests">
+    Tests that run JavaScript unit tests inside the app server context. They use `YUITestLayer` or `YUIAppServerLayer` and the `lp.testing.yuixhr` module. See the [JS tests section](#javascript-yui-tests) below.
+  </Accordion>
+</AccordionGroup>
+
+## Writing a unit test
+
+Use `standard_test_template.py` as a starting point:
+
+```python
+# Copyright 2023 Canonical Ltd.  This software is licensed under the
+# GNU Affero General Public License version 3 (see the file LICENSE).
+
+"""Tests for my module."""
+
+# Use TestCaseWithFactory when you need the object factory.
+from lp.testing import TestCase
+from lp.testing.layers import DatabaseFunctionalLayer
+
+
+class TestSomething(TestCase):
+    # Choose the simplest layer that works for your test.
+    # For pure unit tests with no resources, use BaseLayer.
+    layer = DatabaseFunctionalLayer
+
+    def test_baseline(self):
+        # Assertions take expected value first, actual value second.
+        self.assertEqual(4, 2 + 2)
+```
+
+### Choosing a layer
+
+Pick the simplest layer that satisfies your test's needs:
+
+| Layer | When to use |
+|---|---|
+| `BaseLayer` | No external resources needed |
+| `ZopelessLayer` | Zope component architecture, no database |
+| `DatabaseLayer` | Database access, no Zope CA |
+| `ZopelessDatabaseLayer` | Database + no Zope CA |
+| `FunctionalLayer` | Zope CA, no database |
+| `DatabaseFunctionalLayer` | Database + Zope CA (most common) |
+| `LaunchpadFunctionalLayer` | Full Launchpad stack |
+| `LaunchpadZopelessLayer` | Full stack without browser machinery |
+| `PageTestLayer` | Browser story tests |
+| `YUITestLayer` | YUI JavaScript unit tests |
+| `YUIAppServerLayer` | YUI tests requiring a running app server |
+
+## Writing a doctest
+
+Doctests live in `lib/<package>/doc/` and are `.rst` files. They are loaded by a test suite definition in the corresponding `tests/` directory.
+
+```rst lib/lp/mypackage/doc/myfeature.rst
+My feature
+==========
+
+This document tests the my feature functionality.
+
+    >>> from lp.mypackage.interfaces.mything import IMyThingSet
+    >>> from zope.component import getUtility
+    >>> things = getUtility(IMyThingSet)
+    >>> things.count()
+    0
+```
+
+<Warning>
+Doctest code blocks must be formatted with `blackdoc` (line length 78) and will be validated by `lp-lint-doctest` during the lint CI stage.
+</Warning>
+
+## The `lp.testing` module
+
+The `lp.testing` package (`lib/lp/testing/`) provides helpers for all test types.
+
+### Authentication helpers
+
+```python
+from lp.testing import (
+    login,
+    login_admin,
+    login_as,
+    login_celebrity,
+    login_person,
+    login_team,
+    logout,
+    ANONYMOUS,
+    person_logged_in,       # context manager
+    admin_logged_in,        # context manager
+    anonymous_logged_in,    # context manager
+    celebrity_logged_in,    # context manager
+    with_person_logged_in,  # decorator
+    with_anonymous_login,   # decorator
+    with_celebrity_logged_in,  # decorator
+)
+```
+
+Using context managers is the preferred approach:
+
+```python
+with person_logged_in(user):
+    # code runs as `user`
+    result = view.render()
+```
+
+### Test base classes
+
+| Class | Description |
+|---|---|
+| `TestCase` | Base class for all Launchpad tests. Extends `testtools.TestCase`. |
+| `TestCaseWithFactory` | `TestCase` with `self.factory` bound to `LaunchpadObjectFactory`. Use this whenever you need to create test objects. |
+| `BrowserTestCase` | For tests that drive a test browser. |
+| `AbstractYUITestCase` | Base for YUI JavaScript test cases. |
+
+### Utility helpers
+
+```python
+from lp.testing import (
+    api_url,              # Build a webservice API URL for an object
+    extract_lp_cache,     # Extract the LP.cache JS object from a page
+    normalize_whitespace, # Collapse whitespace in a string
+    record_statements,    # Context manager: record DB statements
+    run_with_login,       # Run a callable as a given person
+    StormStatementRecorder,  # Records Storm SQL statements
+    test_tales,           # Test TALES expressions
+    time_counter,         # Generator producing datetime values
+    verifyObject,         # Verify an object provides an interface
+    FakeAdapterMixin,     # Register a fake adapter in a test
+    FakeLaunchpadRequest, # A fake Launchpad request
+    FakeTime,             # Controllable clock
+    ExpectedException,    # Assert an exception is raised
+    RunIsolatedTest,      # Run a test in a subprocess
+)
+```
+
+### Additional testing modules
+
+| Module | Description |
+|---|---|
+| `lp.testing.factory` | `LaunchpadObjectFactory` — creates test objects in the database |
+| `lp.testing.layers` | Layer definitions |
+| `lp.testing.fixture` | Fixtures: `ZopeAdapterFixture`, `ZopeUtilityFixture`, `ZopeEventHandlerFixture`, `CaptureOops`, `PGBouncerFixture`, etc. |
+| `lp.testing.matchers` | Custom testtools matchers |
+| `lp.testing.pages` | Helpers for browser story tests |
+| `lp.testing.views` | Helpers for view tests |
+| `lp.testing.mail` | Mail helpers for tests |
+| `lp.testing.browser` | Browser test utilities |
+| `lp.testing.dbuser` | `dbuser` context manager to switch DB roles |
+| `lp.testing.script` | Helpers for testing Launchpad scripts |
+| `lp.testing.yuixhr` | YUI+XHR integration test fixtures |
+| `lp.testing.xmlrpc` | XML-RPC test transport |
+| `lp.testing.sampledata` | Constants for sample data accounts |
+
+## Test fixtures and the factory
+
+`TestCaseWithFactory` binds `self.factory` to a `LaunchpadObjectFactory` instance, which can create almost any Launchpad object in the database with sensible defaults:
+
+```python
+from lp.testing import TestCaseWithFactory
+from lp.testing.layers import DatabaseFunctionalLayer
+
+
+class TestBugCreation(TestCaseWithFactory):
+    layer = DatabaseFunctionalLayer
+
+    def test_new_bug_has_no_tags(self):
+        owner = self.factory.makePerson()
+        product = self.factory.makeProduct(owner=owner)
+        with person_logged_in(owner):
+            bug = self.factory.makeBug(target=product)
+        self.assertEqual([], list(bug.tags))
+```
+
+The factory lives in `lib/lp/testing/factory.py:LaunchpadObjectFactory` and provides `make*` methods for every major model type (`makePerson`, `makeProduct`, `makeBug`, `makeBranch`, etc.).
+
+### Fixtures
+
+Launchpad uses the `fixtures` library. Custom fixtures in `lp.testing.fixture` include:
+
+```python
+from lp.testing.fixture import (
+    ZopeAdapterFixture,       # Temporarily register a Zope adapter
+    ZopeUtilityFixture,       # Temporarily register a Zope utility
+    ZopeEventHandlerFixture,  # Temporarily register an event handler
+    ZopeViewReplacementFixture, # Temporarily replace a view
+    CaptureOops,              # Capture OOPS reports
+    PGBouncerFixture,         # Insert pgbouncer in front of PostgreSQL
+    DisableTriggerFixture,    # Disable a database trigger
+    DemoMode,                 # Enable demo mode
+    CapturedOutput,           # Capture stdout/stderr
+)
+```
+
+Use fixtures with `self.useFixture()`:
+
+```python
+util = self.useFixture(ZopeUtilityFixture(MyUtility(), IMyUtility))
+```
+
+## Database isolation in tests
+
+Each test runs inside a database transaction that is **rolled back** at the end of the test. This means:
+
+- Tests do not pollute each other's database state.
+- Objects created with `self.factory` are invisible outside the test.
+- You can call `transaction.commit()` inside a test if you need to flush changes, but the outer rollback still applies at teardown.
+
+Layers manage the lifecycle of external services (database connections, the librarian, memcached, RabbitMQ). Choosing a heavier layer than necessary slows down the test suite — always pick the lightest layer that works.
+
+<Tip>
+To check that your test uses the right layer, run it with `bin/test --layer BaseLayer -t MyTest`. If it errors, it needs a heavier layer.
+</Tip>
+
+## JavaScript YUI tests
+
+YUI integration tests combine JavaScript assertions with Python server-side fixtures. The Python side uses `lp.testing.yuixhr`:
+
+```python lib/lp/mypackage/tests/test_mymodule_js.py
+from lp.testing.yuixhr import setup
+from lp.testing.layers import YUIAppServerLayer
+from lp.testing import AbstractYUITestCase
+
+
+class TestMyModuleJS(AbstractYUITestCase):
+    layer = YUIAppServerLayer
+    suite_name = "lp.mypackage.tests.test_mymodule_js"
+
+
+@setup
+def set_up_person(request, data):
+    """Create a test person and expose it to the JS test."""
+    from lp.testing import person_logged_in
+    from lp.testing.factory import LaunchpadObjectFactory
+    factory = LaunchpadObjectFactory()
+    person = factory.makePerson()
+    data['person_name'] = person.name
+```
+
+The `@setup` decorator marks the function as callable from JavaScript over XHR, allowing JS tests to set up server-side state before running assertions in the browser.

@@ -1,80 +1,185 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick Start"
+description: "Get up and running with Launchpad — create an account, set up a project, file a bug, create a PPA, and start using the API."
 ---
 
-## Get started in three steps
+This guide walks you through your first steps with Launchpad as an end user of [launchpad.net](https://launchpad.net). By the end, you'll have an account, a project, a filed bug, and a working API token.
 
-Get your documentation site running locally and make your first customization.
+<Steps>
+  <Step title="Create a Launchpad account">
+    Launchpad uses **Ubuntu One** for single sign-on. If you already have an Ubuntu One account, you can sign in immediately at [launchpad.net/+login](https://launchpad.net/+login).
 
-### Step 1: Set up your local environment
+    To create a new account:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    1. Visit [login.ubuntu.com](https://login.ubuntu.com)
+    2. Click **Create account** and enter your email address
+    3. Verify your email and complete the registration form
+    4. Return to [launchpad.net](https://launchpad.net) and sign in
 
-### Step 2: Deploy your changes
+    After signing in, Launchpad will prompt you to create a **Launchpad ID** (your username). Choose one carefully — it appears in all your repository URLs, PPA addresses, and bug comments.
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Register a project">
+    Projects in Launchpad are the top-level container for your bugs, code, translations, and blueprints.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    1. Go to [launchpad.net/projects/+new](https://launchpad.net/projects/+new)
+    2. Enter your project's name, URL, and description
+    3. Choose whether to enable bug tracking, code hosting, translations, and blueprints
+    4. Click **Register project**
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    Your project is now available at `https://launchpad.net/your-project-name`.
 
-### Step 3: Go live
+    <Note>
+      If your project already exists upstream (e.g., on GitHub), you can link it to Launchpad by importing the code or setting up a bug tracker link rather than registering a new one.
+    </Note>
+  </Step>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+  <Step title="File your first bug">
+    To file a bug against your project via the web UI:
+
+    1. Navigate to your project page: `https://launchpad.net/your-project`
+    2. Click **Bugs** → **Report a bug**
+    3. Enter a summary, description, and any additional details
+    4. Set importance, status, and assignee if known
+    5. Click **Submit Bug Report**
+
+    Your bug is now live at a URL like `https://bugs.launchpad.net/your-project/+bug/12345`.
+
+    You can also file bugs programmatically using the Python API client:
+
+    ```python launchpadlib example
+    from launchpadlib.launchpad import Launchpad
+
+    # Authenticate (opens a browser window for authorization)
+    lp = Launchpad.login_with('my-script', 'production', version='devel')
+
+    # Get your project
+    project = lp.projects['your-project-name']
+
+    # File a bug
+    bug = lp.bugs.createBug(
+        title='Application crashes on startup',
+        description='Steps to reproduce:\n1. Launch the app\n2. Observe crash',
+        target=project,
+    )
+    print(f"Bug #{bug.id} filed: {bug.web_link}")
+    ```
+  </Step>
+
+  <Step title="Create a Personal Package Archive (PPA)">
+    A PPA lets you build and distribute Ubuntu packages to anyone with an apt source list.
+
+    **Via the web:**
+
+    1. Go to your profile page: `https://launchpad.net/~your-launchpad-id`
+    2. Click **Create a new PPA**
+    3. Choose a name (e.g., `my-ppa`) and display name
+    4. Click **Activate**
+
+    Your PPA is now live at `https://launchpad.net/~your-launchpad-id/+archive/ubuntu/my-ppa`.
+
+    **Via the API:**
+
+    ```python launchpadlib example
+    from launchpadlib.launchpad import Launchpad
+
+    lp = Launchpad.login_with('my-script', 'production', version='devel')
+    me = lp.me
+
+    ppa = me.createPPA(
+        name='my-ppa',
+        displayname='My PPA',
+        description='Packages for my project',
+        private=False,
+    )
+    print(f"PPA created: {ppa.web_link}")
+    ```
+
+    **Enabling your PPA in apt:**
+
+    Users can install your packages by adding your PPA:
+
+    ```bash
+    sudo add-apt-repository ppa:your-launchpad-id/my-ppa
+    sudo apt update
+    sudo apt install your-package
+    ```
+
+    <Tip>
+      To build packages for your PPA, upload a source package (`.dsc` + `.tar.gz` + `.changes`) signed with a GPG key registered on your Launchpad profile. Launchpad's build farm will compile the binaries automatically.
+    </Tip>
+  </Step>
+
+  <Step title="Get an API access token">
+    To use the Launchpad REST API from scripts without interactive browser prompts, create a persistent access token.
+
+    **Option 1 — Interactive (launchpadlib):**
+
+    ```python launchpadlib interactive
+    from launchpadlib.launchpad import Launchpad
+
+    # On first run this opens a browser; subsequent runs use cached credentials
+    lp = Launchpad.login_with(
+        'my-app-name',
+        'production',
+        version='devel',
+    )
+    ```
+
+    Credentials are cached in `~/.launchpadlib/` by default.
+
+    **Option 2 — Non-interactive (for CI/scripts):**
+
+    ```python launchpadlib non-interactive
+    from launchpadlib.launchpad import Launchpad
+
+    lp = Launchpad.login_with(
+        'my-app-name',
+        'production',
+        credentials_file='/path/to/credentials.json',
+        version='devel',
+    )
+    ```
+
+    Generate `credentials.json` once interactively, then store it securely for reuse.
+
+    **Option 3 — Manual token via web UI:**
+
+    1. Go to [launchpad.net/+apidoc](https://launchpad.net/+apidoc) and review available resources
+    2. Visit `https://launchpad.net/~your-id/+oauth-tokens` to manage your tokens
+    3. Create a token with the desired access level (read-only or read-write)
+    4. Use the token in the `Authorization` header:
+
+    ```bash curl example
+    curl -H "Authorization: OAuth realm=\"https://api.launchpad.net/\", oauth_consumer_key=\"my-app\", oauth_token=\"TOKEN\", oauth_signature_method=\"PLAINTEXT\", oauth_signature=\"&TOKEN_SECRET\"" \
+      https://api.launchpad.net/devel/bugs/1
+    ```
+
+    **Anonymous read-only access** (no token needed for public data):
+
+    ```python anonymous access
+    from launchpadlib.launchpad import Launchpad
+
+    lp = Launchpad.login_anonymously('my-script', 'production', version='devel')
+    bug = lp.bugs[1]
+    print(bug.title)
+    ```
+  </Step>
+</Steps>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Core Features" icon="star" href="/features/bugs">
+    Learn about bug tracking, code hosting, PPAs, translations, blueprints, and build services in depth.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the full REST API — endpoints, parameters, and response formats for all Launchpad resources.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand how Launchpad's subsystems fit together under the hood.
+  </Card>
+  <Card title="Contributing" icon="code-branch" href="/contributing/development">
+    Help improve Launchpad — learn the development workflow, testing, and contribution process.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

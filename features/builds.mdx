@@ -1,0 +1,188 @@
+---
+title: Builds
+description: Use Launchpad's distributed build farm to produce Debian packages, snaps, charms, OCI images, rocks, and craft artifacts across multiple architectures.
+keywords: [builds, build farm, snap, charm, oci, rock, craft, ppa, architectures, build status]
+---
+
+Launchpad operates a distributed build farm that runs jobs of many different types. The same infrastructure handles everything from traditional Debian binary package builds to snap packages, charm operators, OCI container images, rocks, and crafts.
+
+## Build farm overview
+
+The build farm consists of builders — machines dedicated to compiling software in clean, isolated environments. Each builder supports one or more processor architectures and a base image type (`BuildBaseImageType`):
+
+- `Chroot tarball` — A traditional chroot environment.
+- `LXD image` — A container image for LXD-based builds.
+
+Builders are managed by `buildd-manager`, which assigns queued jobs to idle builders and monitors running jobs. Builder clean status (`BuilderCleanStatus`) tracks whether a builder is `Clean` (ready to accept a job), `Dirty` (needs cleaning), or `Cleaning`.
+
+## Build types
+
+The build farm supports the following job types (`BuildFarmJobType`):
+
+<CardGroup cols={2}>
+  <Card title="Binary package build" icon="box">
+    Builds a Debian source package into binary `.deb`, `.udeb`, or `.ddeb` files. The most common build type, triggered automatically when a source package is accepted into an archive.
+  </Card>
+  <Card title="Snap package build" icon="layers">
+    Builds a snap package from a `snapcraft.yaml` recipe. Snaps are universal Linux packages that run across distributions.
+  </Card>
+  <Card title="Charm recipe build" icon="wand-magic-sparkles">
+    Builds a charm operator from a `charmcraft.yaml` recipe. Charms are used to deploy and manage applications on Juju.
+  </Card>
+  <Card title="OCI image build" icon="docker">
+    Builds an OCI-compliant container image from a Dockerfile or `rockcraft.yaml`. Images can be pushed to OCI registries.
+  </Card>
+  <Card title="Rock recipe build" icon="server">
+    Builds a rock — a secure, minimal OCI image based on Ubuntu — using Rockcraft.
+  </Card>
+  <Card title="Craft recipe build" icon="wrench">
+    Builds a craft artifact from a `craftfile.yaml` recipe.
+  </Card>
+  <Card title="CI build" icon="circle-check">
+    Runs a continuous integration job on a specific code revision. Results are reported back to the associated Git ref.
+  </Card>
+  <Card title="Live filesystem build" icon="disc">
+    Builds a live filesystem (ISO image) from an archive for installation media.
+  </Card>
+  <Card title="Translation template build" icon="language">
+    Generates translation templates (POT files) from a source branch. Triggered by the Rosetta system to keep translation templates up to date.
+  </Card>
+  <Card title="Branch build / Recipe branch build" icon="code-branch">
+    Legacy build types for building Debian packages from a Bazaar branch or a Bazaar branch and recipe. Still supported for backwards compatibility.
+  </Card>
+</CardGroup>
+
+## Build states
+
+All build types share a common set of build states (`BuildStatus`):
+
+| State | Description |
+|---|---|
+| `Needs building` | Queued and waiting for a free builder. |
+| `Currently building` | Being compiled on an active builder. |
+| `Gathering build output` | Build finished; buildd-manager is downloading output files from the builder. |
+| `Uploading build` | Output files collected; waiting for the upload processor. |
+| `Successfully built` | Build completed and output uploaded. |
+| `Failed to build` | Build failed; requires a new upload or manual reset to retry. |
+| `Failed to upload` | Build succeeded but the resulting upload was rejected. |
+| `Dependency wait` | Build dependencies cannot currently be satisfied in the target series. |
+| `Chroot problem` | The builder's chroot is damaged; requires maintainer intervention. |
+| `Build for superseded Source` | Source was superseded before the build was scheduled. |
+| `Cancelling build` | User requested cancellation; waiting for buildd-manager to stop the job. |
+| `Cancelled build` | Build was cancelled. Terminal state. |
+
+## Build queue
+
+The build queue (`BuildQueueStatus`) tracks in-flight jobs:
+
+| Queue state | Meaning |
+|---|---|
+| `Waiting` | Job is queued and waiting for a builder. |
+| `Running` | Job is actively running on a builder. |
+| `Cancelling` | Job has been cancelled and should be terminated. |
+| `Suspended` | Job is suspended and should not be run. |
+
+## Snap package builds
+
+Snap builds are driven by a snap recipe that points to a Git repository containing a `snapcraft.yaml`. Launchpad handles:
+
+- Building the snap for each requested architecture.
+- Optionally uploading the built snap to the Snap Store.
+- Storing build logs and output `.snap` files.
+
+Snap builds can be triggered manually or automatically on new commits to the source branch. Store upload status is tracked separately from the build status itself.
+
+<Tip>
+To automatically build a snap on every push, enable **Automatic builds** on the snap recipe page and set the branch to watch.
+</Tip>
+
+## Charm recipe builds
+
+Charm recipe builds use a `charmcraft.yaml` file in the source repository. After a successful build, the resulting `.charm` file can be automatically uploaded to Charmhub.
+
+The charm build system (`lib/lp/charms/`) includes:
+
+- `CharmRecipe` — The recipe configuration (source repository, build channels, store settings).
+- `CharmRecipeBuild` — An individual build run.
+- `CharmRecipeBuildJob` — Background jobs associated with a build (e.g., store upload).
+
+## OCI image builds
+
+OCI builds produce container images from a Dockerfile stored in a Git repository. After a successful build, Launchpad can push the image to one or more OCI registries using configured push rules and credentials.
+
+Key entities in the OCI system (`lib/lp/oci/`):
+
+- `OCIRecipe` — The recipe referencing a Dockerfile and target architectures.
+- `OCIRecipeBuild` — An individual image build.
+- `OCIPushRule` — A rule defining which registry and repository to push to.
+- `OCIRegistryCredentials` — Stored credentials for pushing to a registry.
+
+## Rock builds
+
+Rock builds produce minimal, secure OCI images built on Ubuntu using Rockcraft. Rocks are suitable as base images for containerised applications.
+
+The rock build system (`lib/lp/rocks/`) mirrors the structure of charm and snap builds: a recipe pointing to a `rockcraft.yaml`, per-architecture builds, and optional store upload.
+
+## Craft builds
+
+Craft builds are the most general build type, driven by a `craftfile.yaml`. They are designed for use cases that do not fit the snap, charm, or rock categories.
+
+## Debian/binary package builds
+
+When a source package is uploaded to a PPA or the Ubuntu archive, Launchpad automatically schedules binary package builds for all supported architectures in the target series. The build is performed in a clean chroot matching the target series.
+
+If a build fails due to missing build dependencies (`MANUALDEPWAIT`), the archive admin can manually reset the build to `NEEDSBUILD` once the dependencies are available.
+
+## Supported architectures
+
+Common architectures supported by the Launchpad build farm include:
+
+- `amd64` — 64-bit x86 (most packages)
+- `arm64` — 64-bit ARM
+- `armhf` — 32-bit ARM hard-float
+- `i386` — 32-bit x86
+- `ppc64el` — 64-bit PowerPC little-endian
+- `riscv64` — 64-bit RISC-V
+- `s390x` — IBM System Z
+
+<Note>
+Not all archives or build types support every architecture. The set of architectures available for a build depends on the target distribution series and the recipe configuration.
+</Note>
+
+## Triggering builds
+
+Builds can be triggered in several ways:
+
+<AccordionGroup>
+  <Accordion title="Automatic — on source upload">
+    Binary package builds are scheduled automatically when a source package is accepted into an archive.
+  </Accordion>
+  <Accordion title="Automatic — on Git push">
+    Snap, charm, OCI, rock, and craft recipe builds can be configured to trigger automatically whenever a new commit is pushed to the watched branch.
+  </Accordion>
+  <Accordion title="Manual — via the web UI">
+    Navigate to the recipe or package page and click **Request build**. You can select specific architectures and build channels.
+  </Accordion>
+  <Accordion title="Manual — via the API">
+    Use the Launchpad REST API to request a build programmatically:
+    ```python
+    import launchpadlib.launchpad as lp
+    launchpad = lp.Launchpad.login_with('my-app', 'production')
+    snap = launchpad.snaps.getByName(owner=launchpad.me, name='my-snap')
+    snap.requestBuild(archive=launchpad.archives.getByReference(
+        reference='ubuntu'), distro_arch_series=..., pocket='Updates')
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Retrying failed builds
+
+Failed builds can be retried if the underlying cause has been fixed:
+
+- For `FAILEDTOBUILD` builds: an archive admin or the package uploader can use **Retry** in the web UI or the `retry()` API call.
+- For `MANUALDEPWAIT` builds: retry after the missing dependencies have been published.
+- For `CHROOTWAIT` builds: retry after the buildd maintainer has repaired the chroot.
+
+<Warning>
+Retrying a build creates a new build record. The old record is preserved for audit purposes.
+</Warning>

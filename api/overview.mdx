@@ -1,0 +1,223 @@
+---
+title: 'Web Service API overview'
+description: 'Introduction to the Launchpad REST web service API, including versioning, response formats, pagination, and how to get started.'
+keywords: ['launchpad', 'api', 'rest', 'webservice', 'launchpadlib', 'wadl', 'pagination']
+---
+
+The Launchpad web service exposes most of Launchpad's functionality over a REST API at `https://api.launchpad.net/`. You can use it to automate bug triage, query archives, inspect repositories, and manage team memberships programmatically.
+
+## Base URL and versioning
+
+The API is versioned. Three versions are available:
+
+| Version | Notes |
+|---------|-------|
+| `devel` | Reflects the latest changes. May change without warning. Recommended for new integrations. |
+| `1.0` | Stable version introduced in March 2010. End-of-life April 2015. |
+| `beta` | First published version. End-of-life April 2011. |
+
+All API requests use the following URL pattern:
+
+```
+https://api.launchpad.net/{version}/{resource}
+```
+
+For example:
+
+```
+https://api.launchpad.net/devel/bugs/1
+https://api.launchpad.net/1.0/~username
+https://api.launchpad.net/devel/ubuntu
+```
+
+<Tip>
+Use `devel` for any new integration. Versioned endpoints such as `1.0` are frozen and may not include newer fields.
+</Tip>
+
+## Service discovery
+
+The API root endpoint returns a JSON document listing all top-level collections:
+
+```bash
+curl https://api.launchpad.net/devel/
+```
+
+This returns a JSON object whose keys are collection names (e.g. `bugs`, `people`, `distributions`) and whose values are the URL of that collection.
+
+The full WADL service description is available at the same URL when requested with the `application/vnd.sun.wadl+xml` Accept header:
+
+```bash
+curl -H "Accept: application/vnd.sun.wadl+xml" https://api.launchpad.net/devel/
+```
+
+The WADL document describes all resources, their supported methods, and their parameters.
+
+## JSON response format
+
+All responses are JSON. Resources are represented as JSON objects. Collections are represented as JSON objects with the following structure:
+
+<ResponseField name="total_size" type="number">
+  The total number of items in the collection, across all pages.
+</ResponseField>
+
+<ResponseField name="total_size_link" type="string">
+  (Available in `devel` version only.) A link to retrieve just the total count.
+</ResponseField>
+
+<ResponseField name="start" type="number">
+  The index of the first item in this page (zero-based).
+</ResponseField>
+
+<ResponseField name="next_collection_link" type="string">
+  URL of the next page of results. Absent if this is the last page.
+</ResponseField>
+
+<ResponseField name="prev_collection_link" type="string">
+  URL of the previous page of results. Absent if this is the first page.
+</ResponseField>
+
+<ResponseField name="entries" type="object[]">
+  The array of resource objects in this page.
+</ResponseField>
+
+Example response for a collection:
+
+```json
+{
+  "total_size": 42,
+  "start": 0,
+  "next_collection_link": "https://api.launchpad.net/devel/bugs?ws.start=5&ws.size=5",
+  "entries": [
+    {
+      "id": 1,
+      "title": "Example bug",
+      "self_link": "https://api.launchpad.net/devel/bugs/1",
+      "resource_type_link": "https://api.launchpad.net/devel/#bug"
+    }
+  ]
+}
+```
+
+## Pagination
+
+Paginated collections accept two query parameters:
+
+<ParamField query="ws.size" type="number" default="75">
+  Number of results to return per page. The server enforces a maximum batch size.
+</ParamField>
+
+<ParamField query="ws.start" type="number" default="0">
+  Zero-based index of the first result to return.
+</ParamField>
+
+To iterate all pages:
+
+```python
+import urllib.request
+import json
+
+url = "https://api.launchpad.net/devel/bugs/1/bug_tasks"
+while url:
+    data = json.loads(urllib.request.urlopen(url).read())
+    for entry in data["entries"]:
+        print(entry["self_link"])
+    url = data.get("next_collection_link")
+```
+
+## HTTP methods and operations
+
+The API follows REST conventions with some Launchpad-specific named operations:
+
+| HTTP method | Usage |
+|-------------|-------|
+| `GET` | Retrieve a resource or collection |
+| `PATCH` | Update writable fields on a resource |
+| `POST` | Create a new resource or call a named operation |
+| `DELETE` | Delete a resource (where supported) |
+
+Named operations are called with `GET` or `POST` requests and a `ws.op` query parameter:
+
+```bash
+# Call the searchTasks named operation
+curl "https://api.launchpad.net/devel/bugs?ws.op=searchTasks&status=New"
+```
+
+## Error responses
+
+Errors are returned as JSON with a descriptive message. Common HTTP status codes:
+
+| Status | Meaning |
+|--------|---------|
+| `200 OK` | Request succeeded |
+| `201 Created` | Resource created |
+| `400 Bad Request` | Invalid parameters |
+| `401 Unauthorized` | Authentication required or token lacks permission |
+| `403 Forbidden` | Authenticated but not allowed |
+| `404 Not Found` | Resource does not exist |
+| `409 Conflict` | State conflict (e.g. duplicate) |
+
+Error response body:
+
+```json
+{
+  "status": 400,
+  "message": "Invalid parameter: status must be one of New, Confirmed, ..."
+}
+```
+
+## launchpadlib
+
+The recommended way to interact with the Launchpad API from Python is [launchpadlib](https://launchpad.net/launchpadlib). It handles OAuth token management, pagination, and object marshalling automatically.
+
+Install it with pip:
+
+```bash
+pip install launchpadlib
+```
+
+Basic usage:
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+# Authenticate and connect
+lp = Launchpad.login_with(
+    'my-app-name',
+    'production',
+    version='devel'
+)
+
+# Access resources as Python objects
+bug = lp.bugs[1]
+print(bug.title)
+print(bug.date_created)
+
+# Iterate collections transparently
+for task in bug.bug_tasks:
+    print(task.status, task.importance)
+```
+
+To connect without authentication (public data only):
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously(
+    'my-app-name',
+    'production',
+    version='devel'
+)
+```
+
+## Direct HTTP access
+
+You can also call the API directly with any HTTP client. See [Authentication](/api/authentication) for how to obtain and send an OAuth token.
+
+```bash
+curl -H "Authorization: OAuth realm=\"https://api.launchpad.net\",oauth_consumer_key=\"my-app\",oauth_token=\"TOKEN\",oauth_signature_method=\"PLAINTEXT\",oauth_signature=\"TOKEN_SECRET&\",oauth_timestamp=\"$(date +%s)\",oauth_nonce=\"$(openssl rand -hex 8)\",oauth_version=\"1.0\"" \
+  https://api.launchpad.net/devel/bugs/1
+```
+
+<Note>
+For most use cases, launchpadlib handles all of the OAuth signing automatically. Direct HTTP is useful when you are working in a language that does not have a launchpadlib binding.
+</Note>

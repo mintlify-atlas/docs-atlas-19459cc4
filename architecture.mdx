@@ -1,0 +1,292 @@
+---
+title: "Architecture"
+description: "An overview of Launchpad's technical design — subsystems, services layer, web framework, REST API, database, Librarian, and build farm."
+keywords: ["launchpad", "architecture", "zope", "storm", "postgresql", "twisted", "librarian", "build farm", "lazr.restful"]
+---
+
+Launchpad is a large Python web application built on the Zope component architecture. It is structured as an onion of layers: general Python and library code at the base, then `lazr.*` libraries, then `lp.services`, then application packages, and finally `lp.app` at the top that integrates everything into a deployable web application.
+
+```
+lp.app          ← top-level web application (integrates all components)
+lp.coop         ← cross-app collaboration (e.g. answersbugs)
+lp applications ← lp.bugs, lp.code, lp.soyuz, lp.translations, ...
+lp.registry     ← core content model (projects, people, distros, series)
+lp.services     ← reusable services (database, mail, librarian, config, ...)
+lazr.*          ← Canonical utility libraries
+Zope / Twisted  ← framework and async runtime
+Python stdlib   ← standard library
+```
+
+Each layer can only import from layers below it in the hierarchy.
+
+## Application subsystems
+
+<CardGroup cols={2}>
+  <Card title="lp.bugs" icon="bug" href="/features/bugs">
+    The Malone bug tracker. Supports external tracker synchronisation (Bugzilla, GitHub, Trac), email-driven workflows, cross-project duplicate linking, and milestone tracking.
+  </Card>
+  <Card title="lp.code" icon="code-branch" href="/features/code-hosting">
+    Git and Bazaar code hosting. Handles merge proposals, CI build integration, code reviews, and repository mirroring from external hosts.
+  </Card>
+  <Card title="lp.soyuz" icon="box" href="/features/packages">
+    Package archive management. Implements PPAs, distribution archives, upload processing, binary builds, and archive publication.
+  </Card>
+  <Card title="lp.translations" icon="language" href="/features/translations">
+    The Rosetta translation platform. Manages PO/POT file import, crowdsourced translations, reviewer workflows, and translation exports.
+  </Card>
+  <Card title="lp.blueprints" icon="map" href="/features/blueprints">
+    Specification tracking. Links blueprints to projects, series, milestones, bugs, and branches.
+  </Card>
+  <Card title="lp.answers" icon="circle-question">
+    Question and answer forum. Tied to projects and distributions; linked to bugs via `lp.coop.answersbugs`.
+  </Card>
+  <Card title="lp.snappy" icon="cube">
+    Snap package builds. Dispatches snap builds to the build farm and manages snap recipes, channels, and store uploads.
+  </Card>
+  <Card title="lp.charms" icon="wand-magic-sparkles">
+    Charm operator builds. Manages charm recipes and builds for the Charmhub ecosystem.
+  </Card>
+  <Card title="lp.oci" icon="docker">
+    OCI container image builds. Manages OCI recipes, build dispatch, and registry push.
+  </Card>
+  <Card title="lp.rocks" icon="layer-group">
+    Rock package builds. Similar pipeline to snaps and charms, targeting the rock packaging format.
+  </Card>
+  <Card title="lp.crafts" icon="screwdriver-wrench">
+    Craft-based artefact builds. Supports craft-platforms build targets.
+  </Card>
+  <Card title="lp.registry" icon="sitemap">
+    Core content model. Defines Person, Project, Distribution, Series, Milestone, and Team — the entities all other subsystems reference.
+  </Card>
+</CardGroup>
+
+## Services layer
+
+The `lp.services` package provides reusable infrastructure shared across all application subsystems. Key services include:
+
+| Service | Package | Description |
+|---|---|---|
+| Database | `lp.services.database` | Storm ORM integration, PostgreSQL connection management, transaction policy |
+| Librarian | `lp.services.librarian` | Client for the Librarian file storage service |
+| Config | `lp.services.config` | Layered configuration via `lazr.config`, with per-environment overrides |
+| Web framework | `lp.services.webapp` | Zope publisher customisations, authentication, session, error logging |
+| Web service | `lp.services.webservice` | lazr.restful integration for the REST API |
+| Mail | `lp.services.mail` | Outbound email, DKIM signing, incoming email parsing |
+| Messaging | `lp.services.messaging` | RabbitMQ/AMQP integration via Kombu |
+| Job runner | `lp.services.job` | Asynchronous job dispatch, Celery integration |
+| Features | `lp.services.features` | Runtime feature flag evaluation |
+| OAuth | `lp.services.oauth` | OAuth 1.0 token management for API authentication |
+| OpenID | `lp.services.openid` | Ubuntu One SSO (OpenID 2.0) consumer |
+| GPG | `lp.services.gpg` | GPG key management, package signature verification |
+| Memcache | `lp.services.memcache` | Shared caching layer |
+| Signing | `lp.services.signing` | Delegated signing service integration |
+| Webhooks | `lp.services.webhooks` | Outbound webhook delivery for events |
+
+## Web framework
+
+Launchpad's web tier is built on the **Zope component architecture (ZCA)**.
+
+### ZCML configuration
+
+All components — views, adapters, utilities, content objects, and security declarations — are registered through ZCML (Zope Configuration Markup Language). The entry point is `lib/lp/configure.zcml`, which includes every subsystem:
+
+```xml
+<configure xmlns="http://namespaces.zope.org/zope"
+           xmlns:lp="http://namespaces.canonical.com/lp">
+
+    <include package="lp.services" />
+    <include package="lp.bugs" />
+    <include package="lp.code" />
+    <include package="lp.soyuz" />
+    <include package="lp.translations" />
+    <!-- ... all other subsystems ... -->
+
+    <lp:authorizations module="lp.security" />
+</configure>
+```
+
+Each subsystem has its own `configure.zcml` that registers its views, adapters, browser pages, and security declarations.
+
+### Virtual hosts
+
+Launchpad maps each subsystem to a separate virtual host:
+
+| Virtual host | Subsystem |
+|---|---|
+| `launchpad.net` | Main site / registry |
+| `bugs.launchpad.net` | Bug tracker |
+| `code.launchpad.net` | Code hosting |
+| `translations.launchpad.net` | Rosetta translations |
+| `blueprints.launchpad.net` | Blueprints |
+| `answers.launchpad.net` | Q&A |
+| `api.launchpad.net` | REST API |
+| `feeds.launchpad.net` | Atom/RSS feeds |
+
+### Request handling
+
+HTTP requests are handled by a **Gunicorn + WSGI** stack, configured in `configs/development/gunicorn.conf.py`. The WSGI application is assembled in `lib/lp/services/webapp/wsgi.py`. Zope's traversal engine resolves the URL path to a content object and then selects the appropriate view.
+
+## REST API layer
+
+The Launchpad REST API is exposed at `api.launchpad.net` and implemented using **[lazr.restful](https://launchpad.net/lazr.restful)**.
+
+- All API-exported interfaces are declared using `lazr.restful` decorators on Zope interfaces.
+- The API is versioned; the current recommended version is `devel`.
+- Authentication uses **OAuth 1.0** tokens managed by `lp.services.oauth`.
+- The API surface is described by a WADL document, available at `https://api.launchpad.net/devel.wadl`.
+
+The Python client library **[launchpadlib](https://launchpad.net/launchpadlib)** wraps the REST API with a high-level Python interface and handles OAuth token acquisition automatically.
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_with("my-app", "production", version="devel")
+
+# The client library discovers available resources from the WADL
+bug = lp.bugs[1]
+print(bug.title)
+```
+
+The web service registration wires `lazr.restful` into the ZCML component registry:
+
+```xml
+<!-- In lp.services.webservice configure.zcml -->
+<webservice:register module="lp.services.webservice.webservice" />
+```
+
+## Database
+
+Launchpad uses **PostgreSQL** as its sole relational database.
+
+### Storm ORM
+
+All database access goes through [Storm](https://storm.canonical.com/), an object-relational mapper developed by Canonical. Models inherit from `lp.services.database.stormbase.StormBase`:
+
+```python
+from storm.locals import Int, Unicode, Reference
+from lp.services.database.stormbase import StormBase
+
+class MyModel(StormBase):
+    __storm_table__ = "mymodel"
+
+    id = Int(primary=True)
+    name = Unicode()
+    project_id = Int()
+    project = Reference(project_id, "Project.id")
+```
+
+### Connection management
+
+`lp.services.database` provides:
+
+- Primary/standby database connection routing via `rw_main_primary` and `rw_main_standby` config keys
+- Per-request transaction isolation policy
+- Read-only standby routing for safe read operations
+- Per-daemon database role overrides (e.g. `buildd_manager`)
+
+Database configuration for development:
+
+```ini
+[database]
+rw_main_primary: dbname=launchpad_dev
+rw_main_standby: dbname=launchpad_dev
+```
+
+### Schema and migrations
+
+The database schema lives in `database/schema/`. Schema changes are applied with:
+
+```bash
+make schema
+```
+
+## The Librarian
+
+The **Librarian** is Launchpad's internal content-addressed file storage service. It stores binary artefacts — package files, build logs, translation exports, attachments — separately from the PostgreSQL database.
+
+The Librarian daemon is a **Twisted** application defined in `daemons/librarian.tac`. It exposes:
+
+- A **TCP upload port** (default `58090`) using a custom binary protocol for inbound file uploads from the Launchpad application tier.
+- A **HTTP download port** (default `58080`) for serving files to end users and other services.
+
+A **restricted Librarian** instance (ports `58095`/`58085`) stores files that require authentication before download (e.g. private PPA build logs).
+
+The `lp.services.librarian.client.LibrarianClient` provides the internal upload/download API used by the rest of Launchpad.
+
+## Build farm
+
+The build farm dispatches package, snap, charm, OCI, and other build jobs to a fleet of remote **builder machines** (`launchpad-buildd`).
+
+### Build manager daemon
+
+The `buildd-manager.tac` Twisted daemon (managed by `lp.buildmaster.manager.BuilddManager`) runs the build dispatch loop:
+
+1. Polls the database for pending build jobs.
+2. Assigns jobs to available builders via HTTP calls to the `launchpad-buildd` agent running on each builder.
+3. Monitors build progress and collects results.
+4. Uploads build artefacts to the Librarian and triggers archive publication.
+
+### Build behaviours
+
+Each build type is implemented as a **build behaviour** class under its respective subsystem:
+
+| Build type | Behaviour module |
+|---|---|
+| Debian binary packages | `lp.soyuz.model.binarypackagebuildbehaviour` |
+| Snap packages | `lp.snappy.model.snapbuildbehaviour` |
+| Charm operators | `lp.charms.model.charmrecipebuildbehaviour` |
+| OCI images | `lp.oci.model.ocirecipebuildbehaviour` |
+| LiveFS images | `lp.soyuz.model.livefsbuildbehaviour` |
+| Translation templates | `lp.translations.model.translationtemplatesbuildbehaviour` |
+| CI builds | `lp.code.model.cibuildbehaviour` |
+
+## Asynchronous processing
+
+Launchpad uses several mechanisms for background and asynchronous work:
+
+### Twisted daemons
+
+Background services are implemented as **Twisted** applications (`.tac` files in `daemons/`):
+
+| Daemon | File | Purpose |
+|---|---|---|
+| Librarian | `librarian.tac` | File storage service |
+| Build manager | `buildd-manager.tac` | Build farm dispatch |
+| SFTP server | `sftp.tac` | Code hosting SSH access |
+| Mirror prober | `distributionmirror_http_server.tac` | Distribution mirror health checks |
+| Number cruncher | `numbercruncher.tac` | Build queue statistics |
+
+### Celery and RabbitMQ
+
+Asynchronous jobs (email notifications, webhook delivery, archive publication triggers) are dispatched via **Celery** workers backed by a **RabbitMQ** broker.
+
+Configuration:
+
+```ini
+[rabbitmq]
+broker_urls: amqp://guest:guest@localhost:56720//
+```
+
+The `lp.services.job` package provides the base job interfaces and Celery integration. The `lp.services.messaging` package wraps Kombu for direct AMQP publish/subscribe.
+
+## Key technologies at a glance
+
+| Technology | Role |
+|---|---|
+| Python 3 | Primary application language |
+| Zope (ZCA, ZCML) | Component architecture, views, traversal |
+| lazr.restful | REST API framework |
+| Storm | ORM for PostgreSQL |
+| PostgreSQL | Primary relational database |
+| Twisted | Async daemons (Librarian, buildd-manager, SFTP) |
+| Celery + RabbitMQ | Asynchronous job queue |
+| Gunicorn | WSGI HTTP server for the web tier |
+| Memcached | Application-level caching |
+| launchpadlib | Python REST API client library |
+| launchpad-buildd | Remote builder agent |
+| Breezy (brz) | Bazaar VCS library |
+| loggerhead | Bazaar/Git code browser |
+
+<Note>
+  The codebase uses `lazr.*` libraries — a suite of utility packages developed by Canonical. These include `lazr.restful` (REST API), `lazr.config` (layered configuration), `lazr.delegates` (interface delegation), `lazr.enum` (database enumerations), and others listed in `setup.cfg`.
+</Note>

@@ -1,0 +1,251 @@
+---
+title: "Background Services & Daemons"
+description: "The background daemons, cron jobs, and infrastructure services that Launchpad runs"
+---
+
+Launchpad is composed of multiple long-running daemons, Celery workers, and cron scripts. In development, most of these are started alongside the main appserver by `bin/run`. In production they run as separate system services.
+
+## Starting Services in Development
+
+The `bin/run` script accepts a `-r` flag to launch auxiliary services:
+
+```bash
+# Start with Librarian, Bing stub, Memcached, and RabbitMQ
+bin/run -r librarian,bing-webservice,memcached,rabbitmq -i development
+
+# Start everything including SFTP and code browsing
+bin/run -r librarian,sftp,codebrowse,bing-webservice,memcached,rabbitmq -i development
+
+# Start only the code-hosting stack
+bin/run -r librarian,sftp,codebrowse,rabbitmq -i development
+```
+
+Each service name passed to `-r` corresponds to a `launch: True` entry in the config (e.g. `[librarian_server] launch: True`) or a named service registered in the run script.
+
+## Twisted Daemons
+
+All long-running Launchpad daemons are implemented as Twisted applications using `.tac` (Twisted Application Configuration) files in the `daemons/` directory. They are launched with `twistd`:
+
+```bash
+bin/twistd -noy daemons/<name>.tac
+```
+
+<CardGroup cols={2}>
+  <Card title="librarian.tac" icon="folder-open">
+    **The Librarian** — Launchpad's binary file storage service. Runs two pairs of TCP listeners: a public instance (upload port 58090, download port 58080) and a restricted instance (upload port 58095, download port 58085). Files are stored under `librarian_server.root` (default `/var/tmp/fatsam` in development). Can optionally proxy to an upstream Librarian via `librarian_server.upstream_host`. Connects to PostgreSQL as the `librarian` database role. Optionally backs file storage with OpenStack Swift.
+  </Card>
+  <Card title="buildd-manager.tac" icon="hammer">
+    **The Build Farm Dispatcher** — Scans registered build workers (`BuilddManager`), dispatches pending build jobs, monitors build progress, and processes upload results. Connects as the `buildd_manager` PostgreSQL role with `read_committed` isolation. Configured via the `[builddmaster]` section. The `uploader` key specifies the command invoked to process completed uploads (`scripts/process-upload.py`).
+  </Card>
+  <Card title="sftp.tac" icon="terminal">
+    **The Codehosting SFTP Server** — Serves Bazaar branch pushes/pulls over SSH/SFTP. Uses `lazr.sshserver` to implement the SSH layer. Configured via `[codehosting]` — notably `port` (a Twisted strport string, default `tcp:5022`), `idle_timeout` (seconds before idle connections are dropped), and `host_key_pair_path`. Exposes an HTTP status endpoint at `codehosting.web_status_port` that returns 200 OK when accepting connections and 503 during graceful shutdown.
+  </Card>
+  <Card title="numbercruncher.tac" icon="chart-bar">
+    **The Number Cruncher** — Periodically pushes metrics to a StatsD receiver. Configured via the `[statsd]` section (`host`, `port`, `prefix`, `environment`). Useful for monitoring Launchpad's internal counters in production environments.
+  </Card>
+  <Card title="distributionmirror_http_server.tac" icon="globe">
+    **Distribution Mirror Test HTTP Server** — A lightweight Twisted HTTP server used exclusively during tests. Serves canned responses that simulate Ubuntu mirror servers. Listens on port 11375 to match the mirror URLs in the sampledata. Not started in normal development or production.
+  </Card>
+</CardGroup>
+
+## The Librarian in Detail
+
+The Librarian is Launchpad's central binary file store, used for build logs, package files, translation tarballs, bug attachments, and more. It is separate from the main database to allow large files to be served efficiently.
+
+```ini
+[librarian]
+upload_port: 58090
+download_port: 58080
+download_url: http://launchpad.test:58080/
+restricted_upload_port: 58095
+restricted_download_port: 58085
+restricted_download_url: http://launchpad.test:58085/
+use_https: False
+
+[librarian_server]
+root: /var/tmp/fatsam
+launch: True
+logfile: librarian.log
+```
+
+Files stored through the restricted interface have the `restricted` flag set and are only accessible to authenticated users. In production, the Librarian stores files in OpenStack Swift; in development, files go to the local filesystem under `librarian_server.root`.
+
+To start or stop the Librarian independently:
+
+```bash
+bin/start_librarian
+bin/killservice librarian
+```
+
+## Celery Workers and Job Queues
+
+Launchpad uses [Celery](https://docs.celeryq.dev/) for asynchronous background jobs. Jobs are dispatched via RabbitMQ and consumed by Celery workers. The queues and their configuration are defined in `configs/schema-lazr.conf`:
+
+| Queue | Timeout | Concurrency | Purpose |
+|---|---|---|---|
+| `launchpad_job` | 300s | 3 | Main job queue |
+| `launchpad_job_slow` | 86400s | 1 | Overflow for timed-out main jobs |
+| `bzrsyncd_job` | 300s | 3 | Bazaar sync jobs |
+| `bzrsyncd_job_slow` | 86400s | 1 | Overflow for timed-out Bazaar jobs |
+| `branch_write_job` | 300s | 3 | Branch write operations |
+| `branch_write_job_slow` | 86400s | 1 | Overflow for timed-out branch writes |
+| `celerybeat` | 86400s | 1 | `RunMissingReady` periodic scheduler |
+| `native_publisher_job` | 300s | 3 | Native package publishing |
+| `native_publisher_job_slow` | 86400s | 1 | Overflow for publishing jobs |
+
+Each queue has an optional `fallback_queue`: if a job exceeds the `timeout` limit, it is re-queued in the fallback queue. `launchpad_job_slow` and similar queues have no fallback and a 24-hour timeout.
+
+Job sources (the Celery task classes) are listed in `[process-job-source-groups].job_sources` and include entries like:
+
+```ini
+[IBranchModifiedMailJobSource]
+module: lp.code.interfaces.branchjob
+dbuser: send-branch-mail
+crontab_group: MAIN
+```
+
+Jobs in the `MAIN` crontab group are dispatched by `cronscripts/process-job-source-groups.py`. Jobs with `runner_class: TwistedJobRunner` (e.g. `IBranchMergeProposalJobSource`) are run in the Twisted event loop.
+
+## RabbitMQ
+
+RabbitMQ is the AMQP message broker used by Celery and for OOPS (error report) delivery. In development, `bin/run -r rabbitmq` starts a local RabbitMQ instance:
+
+```ini
+[rabbitmq]
+launch: True
+broker_urls: amqp://guest:guest@localhost:56720//
+```
+
+The `broker_urls` key accepts a space-separated list of AMQP URLs for round-robin failover across brokers.
+
+OOPS reports are published to the `error_exchange` AMQP exchange:
+
+```ini
+[error_reports]
+oops_prefix: X
+error_dir: /var/tmp/lperr
+error_exchange: none   # set to 'oopses' in production
+```
+
+## Memcache
+
+Launchpad caches frequently read, rarely changed data (e.g. rendered branch listings, user karma) in Memcached. In development, a local instance is started automatically:
+
+```ini
+[memcache]
+servers: (127.0.0.1:11217,1)
+
+[memcached]
+launch: True
+address: 127.0.0.1
+port: 11217
+memory_size: 2
+```
+
+The `servers` format is `(host:port,weight)` — the weight value after the comma was formerly a debug flag and is now ignored.
+
+## Cron Scripts
+
+Launchpad has approximately 50 cron scripts in `cronscripts/`. Each script is a standalone Python program that runs a specific maintenance or data-processing task. They are orchestrated in production by `process-job-source-groups.py` and the `crontab_group` setting.
+
+<Accordion title="Bug and question maintenance">
+  | Script | Purpose |
+  |---|---|
+  | `expire-bugtasks.py` | Expire stale incomplete bug tasks |
+  | `expire-questions.py` | Expire inactive open questions |
+  | `send-bug-notifications.py` | Send queued bug email notifications |
+  | `send-person-notifications.py` | Send queued person-related notifications |
+  | `check-teamparticipation.py` | Verify team membership consistency |
+  | `update-bugtask-targetnamecaches.py` | Rebuild bug target name caches |
+  | `update-bugzilla-remote-components.py` | Sync Bugzilla component lists |
+  | `update-cve.py` | Import CVE data from MITRE |
+  | `checkwatches.py` | Poll external bug trackers for status updates |
+</Accordion>
+
+<Accordion title="Package and archive management">
+  | Script | Purpose |
+  |---|---|
+  | `publish-ftpmaster.py` | Publish Ubuntu archive to the FTP master |
+  | `expire-archive-files.py` | Remove expired archive files |
+  | `generate-contents-files.py` | Generate `Contents` index files |
+  | `generate-ppa-htaccess.py` | Regenerate PPA `.htaccess` files |
+  | `ppa-generate-keys.py` | Generate signing keys for new PPAs |
+  | `ppa-update-keys.py` | Update PPA signing keys |
+  | `parse-ppa-apache-access-logs.py` | Parse PPA download stats from Apache logs |
+  | `parse-librarian-apache-access-logs.py` | Parse Librarian download stats |
+  | `buildd-retry-depwait.py` | Retry builds stuck in DEPWAIT |
+  | `request_daily_builds.py` | Request daily recipe/snap/charm builds |
+  | `repack_git_repositories.py` | Trigger Git repository repacks |
+</Accordion>
+
+<Accordion title="Translations (Rosetta)">
+  | Script | Purpose |
+  |---|---|
+  | `rosetta-poimport.py` | Import queued translation files |
+  | `rosetta-pofile-stats.py` | Update POFile translation statistics |
+  | `rosetta-export-queue.py` | Process the translation export queue |
+  | `rosetta-approve-imports.py` | Auto-approve eligible translation imports |
+  | `language-pack-exporter.py` | Export language packs for Ubuntu |
+  | `translations-export-to-branch.py` | Export translations to a Bazaar branch |
+</Accordion>
+
+<Accordion title="Code hosting">
+  | Script | Purpose |
+  |---|---|
+  | `supermirror-pull.py` | Pull branches into the Launchpad mirror |
+  | `librarian-feed-swift.py` | Move Librarian files to Swift storage |
+  | `librarian-gc.py` | Garbage-collect unreferenced Librarian files |
+</Accordion>
+
+<Accordion title="Karma and statistics">
+  | Script | Purpose |
+  |---|---|
+  | `foaf-update-karma-cache.py` | Rebuild the karma cache for all users |
+  | `allocate-revision-karma.py` | Assign karma for revision contributions |
+  | `update-stats.py` | Update project and user statistics |
+  | `update-database-stats.py` | Collect PostgreSQL table statistics |
+  | `daily_product_jobs.py` | Run daily product maintenance tasks |
+  | `flag-expired-memberships.py` | Flag expired team memberships |
+</Accordion>
+
+<Accordion title="Other maintenance">
+  | Script | Purpose |
+  |---|---|
+  | `garbo-daily.py` | Daily garbage collection sweep |
+  | `garbo-frequently.py` | Frequent garbage collection sweep |
+  | `garbo-hourly.py` | Hourly garbage collection sweep |
+  | `process-mail.py` | Process incoming email to Launchpad |
+  | `process-job-source.py` | Run jobs from a single job source |
+  | `process-job-source-groups.py` | Run jobs from grouped job sources |
+  | `product-release-finder.py` | Find new upstream product releases |
+  | `distributionmirror-prober.py` | Probe Ubuntu mirror availability |
+  | `update-pkgcache.py` | Update the package cache |
+  | `update-remote-product.py` | Sync remote product metadata |
+  | `update-standing.py` | Update user standing scores |
+  | `nightly.sh` | Shell wrapper for nightly maintenance batch |
+</Accordion>
+
+## Code Browsing (Loggerhead)
+
+Launchpad's Bazaar code browser (Loggerhead) runs as a separate service:
+
+```bash
+# Run in foreground
+make run_codebrowse
+
+# Run as daemon
+make start_codebrowse
+
+# Stop
+make stop_codebrowse
+```
+
+Loggerhead is started via `scripts/start-loggerhead.py` with `BRZ_PLUGIN_PATH=brzplugins` set in the environment. It is configured in the `[codebrowse]` section:
+
+```ini
+[codebrowse]
+cachepath: /var/tmp/bazaar.launchpad.test/cache
+log_folder: /var/tmp/bazaar.launchpad.test/logs
+launchpad_root: https://code.launchpad.test/
+secret_path: configs/development/codebrowse-secret
+```

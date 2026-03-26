@@ -1,0 +1,268 @@
+---
+title: "Configuration System"
+description: "How Launchpad's lazr.config-based configuration system works"
+---
+
+Launchpad uses [lazr.config](https://launchpad.net/lazr.config), an INI-based configuration library, to manage all runtime settings. Configuration is instance-based: a named *config instance* is selected at startup, and the system assembles the final configuration from a chain of inherited files.
+
+## The `LPCONFIG` Environment Variable
+
+The active configuration instance is controlled by the `LPCONFIG` environment variable. If unset, it defaults to `development` (as defined in the `Makefile`):
+
+```bash
+# Run with the default development config
+bin/run -i development
+
+# Run with an explicit config instance
+LPCONFIG=testrunner bin/test
+
+# View the assembled config for any instance
+./utilities/lsconf.py ./configs/development/launchpad-lazr.conf
+```
+
+The test runner overrides `LPCONFIG` programmatically:
+
+```python
+config.setInstance('testrunner')
+```
+
+## Config Directory Structure
+
+All configuration lives under `configs/`:
+
+```
+configs/
+├── schema-lazr.conf          # Symlink to lib/lp/services/config/schema-lazr.conf
+├── development/              # Default dev instance (LPCONFIG=development)
+│   ├── launchpad-lazr.conf
+│   ├── gunicorn.conf.py
+│   └── local-launchpad-apache
+├── testrunner/               # Used by the test suite
+│   └── launchpad-lazr.conf
+├── testrunner-appserver/     # Functional test appserver
+│   └── launchpad-lazr.conf
+├── replicated-development/   # Dev instance with replication config
+└── test-playground/          # Interactive testing against ftest_playground DB
+```
+
+Each instance directory contains a `launchpad-lazr.conf` file that declares what it extends and overrides only the keys that differ from its parent.
+
+## Schema and Inheritance Chain
+
+All configs inherit from the Launchpad schema. The inheritance tree for development looks like this:
+
+```
+lib/lp/services/config/schema-lazr.conf   ← root schema with defaults
+    └── configs/development/launchpad-lazr.conf
+            └── configs/testrunner/launchpad-lazr.conf
+                    ├── authserver-lazr.conf
+                    ├── testrunner_N/launchpad-lazr.conf
+                    └── configs/testrunner-appserver/launchpad-lazr.conf
+```
+
+Every `launchpad-lazr.conf` declares its parent via the `[meta]` section:
+
+```ini
+[meta]
+extends: ../../lib/lp/services/config/schema-lazr.conf
+```
+
+The testrunner config extends development:
+
+```ini
+[meta]
+extends: ../development/launchpad-lazr.conf
+```
+
+## The Schema File
+
+`configs/schema-lazr.conf` (symlinked from `lib/lp/services/config/schema-lazr.conf`) is the master schema. It defines every valid section and key, with their default values and documentation comments. Configs cannot add sections or keys that are not declared in the schema.
+
+<Accordion title="How implicit typing works">
+  lazr.config applies Python types automatically based on the value string:
+
+  - **Integers:** any value made of only digits, optionally prefixed with `+`/`-` → `int`
+  - **Booleans/None:** the tokens `true`, `false`, `none` (case-insensitive) → `True`, `False`, `None`
+  - **Strings:** everything else → `str`
+  - **Multi-line strings:** indent continuation lines under the key
+
+  ```ini
+  mykey: this line
+      has a line break in it.
+  ```
+
+  Lists and compound types are not supported natively; call sites must split/unpack the value themselves.
+</Accordion>
+
+## Accessing Config in Code
+
+The `LaunchpadConfig` singleton is imported from `lp.services.config`:
+
+```python
+from lp.services.config import config
+
+# Dict-style access
+assert "launchpad" in config
+batch_size = config["launchpad"]["default_batch_size"]
+
+# Attribute-style access (most common)
+download_host = config.librarian.download_host    # 'localhost'
+download_port = config.librarian.download_port    # 58000
+```
+
+## Key Configuration Sections
+
+<Accordion title="[database] — PostgreSQL connection">
+  ```ini
+  [database]
+  rw_main_primary: dbname=launchpad_dev
+  rw_main_standby: dbname=launchpad_dev
+  max_usable_lag: 120
+  isolation_level: repeatable_read
+  db_statement_timeout: none
+  storm_cache: generational
+  storm_cache_size: 10000
+  set_role_after_connecting: False
+  ```
+
+  Connection strings follow the `PQconnectdb` format. The `dbuser` is specified per-section in individual process configs, not in the `[database]` section itself. In development both primary and standby point to the same `launchpad_dev` database.
+</Accordion>
+
+<Accordion title="[librarian] and [librarian_server] — file storage service">
+  ```ini
+  [librarian]
+  download_url: http://launchpad.test:58080/
+  upload_port: 58090
+  download_port: 58080
+  restricted_upload_port: 58095
+  restricted_download_port: 58085
+  restricted_download_url: http://launchpad.test:58085/
+  use_https: False
+  authentication_endpoint: http://xmlrpc-private.launchpad.test:8087/authserver
+
+  [librarian_server]
+  root: /var/tmp/fatsam
+  launch: True
+  logfile: librarian.log
+  ```
+
+  `launch: True` tells `bin/run` to start the Librarian as an embedded service. Files are stored under `librarian_server.root`. The Librarian exposes both a public and a restricted instance on separate port pairs.
+</Accordion>
+
+<Accordion title="[codehosting] — Git and Bazaar hosting">
+  ```ini
+  [codehosting]
+  launch: True
+  authentication_endpoint: http://xmlrpc-private.launchpad.test:8087/authserver
+  codehosting_endpoint: http://xmlrpc-private.launchpad.test:8087/codehosting
+  port: tcp:5022:interface=0.0.0.0
+  git_browse_root: https://git.launchpad.test/
+  git_anon_root: git://git.launchpad.test/
+  git_ssh_root: git+ssh://git.launchpad.test/
+  access_log: /var/tmp/bazaar.launchpad.test/codehosting-access.log
+  idle_timeout: 3600
+  loose_objects_threshold: 4350
+  packs_threshold: 30
+  ```
+
+  `port` is a Twisted strport string. `idle_timeout` is in seconds. Git repository repack thresholds control automatic maintenance.
+</Accordion>
+
+<Accordion title="[launchpad] — application-level settings">
+  ```ini
+  [launchpad]
+  devmode: true
+  enable_test_openid_provider: True
+  openid_provider_root: https://testopenid.test/
+  ca_certificates_path: /etc/ssl/certs/ca-certificates.crt
+  code_domain: code.launchpad.test
+  default_batch_size: 5
+  max_attachment_size: 2097152
+  feature_flags_endpoint: http://xmlrpc-private.launchpad.test:8087/featureflags/
+  ```
+
+  `devmode: true` enables development-mode features such as traceback display. The test OpenID provider is only safe to enable in dev/testrunner instances.
+</Accordion>
+
+<Accordion title="[memcached] and [memcache] — caching">
+  ```ini
+  [memcache]
+  servers: (127.0.0.1:11217,1)
+
+  [memcached]
+  launch: True
+  address: 127.0.0.1
+  port: 11217
+  memory_size: 2
+  verbose: False
+  ```
+
+  `[memcache].servers` is a comma-separated list of `(host:port,weight)` tuples consumed directly by the Python memcache client. `[memcached].launch: True` instructs `bin/run` to start a local Memcached instance.
+</Accordion>
+
+<Accordion title="[rabbitmq] — message broker">
+  ```ini
+  [rabbitmq]
+  launch: True
+  broker_urls: amqp://guest:guest@localhost:56720//
+  ```
+
+  The `broker_urls` key accepts a space-separated list of AMQP URLs for round-robin failover. When `launch: True`, the dev runner starts a local RabbitMQ instance on port 56720.
+</Accordion>
+
+<Accordion title="[vhost.*] — virtual host routing">
+  ```ini
+  [vhosts]
+  use_https: True
+
+  [vhost.mainsite]
+  hostname: launchpad.test
+  althostnames: localhost
+
+  [vhost.api]
+  hostname: api.launchpad.test
+
+  [vhost.code]
+  hostname: code.launchpad.test
+
+  [vhost.bugs]
+  hostname: bugs.launchpad.test
+
+  [vhost.answers]
+  hostname: answers.launchpad.test
+
+  [vhost.translations]
+  hostname: translations.launchpad.test
+  ```
+
+  Each `[vhost.*]` section inherits from the `[vhost.template]` schema template which defines `hostname`, `althostnames`, and `rooturl`. The `[vhost.xmlrpc_private]` section is declared `optional` in the schema and must be explicitly included to activate.
+</Accordion>
+
+## Modifying Config in Tests
+
+Tests must never set config attributes directly. Use `config.push()` / `config.pop()` or the preferred `TestCase.pushConfig` helper:
+
+```python
+test_data = """
+    [answertracker]
+    email_domain: answers.launchpad.test"""
+config.push("test_data", test_data)
+# ... run test ...
+config.pop("test_data")
+```
+
+`pushConfig` restores the original value automatically at test teardown.
+
+## Inspecting a Resolved Config
+
+Use `utilities/lsconf.py` to see the fully assembled configuration for any instance:
+
+```bash
+# Show full resolved config
+./utilities/lsconf.py ./configs/development/launchpad-lazr.conf
+
+# Show only the [librarian] section with source annotations
+./utilities/lsconf.py -v -s librarian ./configs/development/launchpad-lazr.conf
+```
+
+The `-v` flag annotates every key with the file that set it. The output format is valid lazr.conf.

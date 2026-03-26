@@ -1,97 +1,65 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Launchpad Documentation"
+description: "The open source collaboration platform for software projects — bug tracking, code hosting, package publishing, translations, and build services."
 ---
 
-## Setting up
+Launchpad is an open source suite of tools that help people and teams work together on software projects. It powers [launchpad.net](https://launchpad.net), Canonical's hosted collaboration platform used by thousands of Ubuntu and open source projects worldwide.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get up and running with Launchpad in minutes — create an account, set up your project, and file your first bug.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Architecture Overview" icon="sitemap" href="/architecture">
+    Understand Launchpad's modular design — from the web service API to the build farm and librarian storage.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the REST web service API to integrate Launchpad bug tracking, code, and packages into your workflows.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Core Features" icon="star" href="/features/bugs">
+    Discover bug tracking, code hosting, PPA packages, translations, blueprints, and build services.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What you can do with Launchpad
 
-Everything you need to create world-class documentation.
+<CardGroup cols={3}>
+  <Card title="Bug Tracking" icon="bug" href="/features/bugs">
+    Track bugs, link to upstream trackers (GitHub, Bugzilla, GitLab), and manage bug lifecycle across projects and distributions.
+  </Card>
+  <Card title="Code Hosting" icon="code-branch" href="/features/code-hosting">
+    Host Git repositories, manage branches, and run code reviews through merge proposals with inline diffs and comments.
+  </Card>
+  <Card title="Package Publishing" icon="box" href="/features/packages">
+    Publish Ubuntu packages via Personal Package Archives (PPAs) and manage distribution uploads and binary builds.
+  </Card>
+  <Card title="Translations" icon="language" href="/features/translations">
+    Crowdsource software translations using the Rosetta platform, with support for PO files and translation imports/exports.
+  </Card>
+  <Card title="Blueprints" icon="map" href="/features/blueprints">
+    Plan features and specifications with blueprint tracking, priority assignments, and milestone targeting.
+  </Card>
+  <Card title="Build Services" icon="hammer" href="/features/builds">
+    Build Snap packages, Charm operators, OCI images, and Debian packages across multiple architectures.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Get started
 
-## Need inspiration?
+<Steps>
+  <Step title="Create your Launchpad account">
+    Visit [launchpad.net](https://launchpad.net) and sign in with your Ubuntu One account. If you don't have one, you can register for free.
+  </Step>
+  <Step title="Create or join a project">
+    Register a new project or search for an existing one. Projects are the top-level container for your bugs, code, translations, and blueprints.
+  </Step>
+  <Step title="Set up your first repository">
+    Import or create a Git repository for your project. Launchpad supports both Git and the legacy Bazaar VCS.
+  </Step>
+  <Step title="File a bug or start translating">
+    Use the bug tracker to report issues, or dive into Rosetta to start contributing translations. The REST API lets you automate both.
+  </Step>
+</Steps>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Note>
+  Launchpad is a project of [Canonical](https://canonical.com). The source code is available under the GNU Affero General Public License v3. Contributors are welcome — see the [Contributing guide](/contributing/development) to get involved.
+</Note>

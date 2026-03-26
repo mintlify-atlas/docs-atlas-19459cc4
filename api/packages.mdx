@@ -1,0 +1,271 @@
+---
+title: 'Packages'
+description: 'Access Personal Package Archives (PPAs) and package publishing records using the Launchpad web service API.'
+keywords: ['launchpad', 'api', 'ppa', 'archive', 'packages', 'publishing', 'apt']
+---
+
+The packages API exposes Launchpad's archive and package publishing infrastructure. Archives include Personal Package Archives (PPAs) as well as distribution primary archives.
+
+## Get a PPA
+
+PPAs are addressed by owner and name:
+
+```bash
+GET /api/devel/~{person}/+archive/{name}
+```
+
+```bash
+curl https://api.launchpad.net/devel/~username/+archive/my-ppa
+```
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+ppa = lp.load('https://api.launchpad.net/devel/~username/+archive/my-ppa')
+print(ppa.displayname, ppa.description)
+print(ppa.private, ppa.enabled)
+```
+
+Alternatively, look up a PPA from a person object using `getPPAByName`, which requires specifying the distribution:
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+person = lp.people['username']
+ubuntu = lp.distributions['ubuntu']
+ppa = person.getPPAByName(distribution=ubuntu, name='my-ppa')
+print(ppa.web_link)
+```
+
+### Archive fields
+
+<ResponseField name="name" type="string" required>
+  Short name of the archive. Used in URLs.
+</ResponseField>
+
+<ResponseField name="displayname" type="string">
+  Human-readable display name for this archive.
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  A short description of the archive. URLs are rendered as links.
+</ResponseField>
+
+<ResponseField name="reference" type="string">
+  A unique string identifying the archive (e.g. `~username/ubuntu/my-ppa`).
+</ResponseField>
+
+<ResponseField name="owner" type="object">
+  Link to the `IPerson` or team that owns this archive.
+</ResponseField>
+
+<ResponseField name="distribution" type="object">
+  Link to the distribution this archive belongs to.
+</ResponseField>
+
+<ResponseField name="private" type="boolean">
+  Whether this archive restricts access to its owner and subscribers.
+</ResponseField>
+
+<ResponseField name="enabled" type="boolean">
+  Whether this archive accepts uploads and builds packages.
+</ResponseField>
+
+<ResponseField name="signing_key_fingerprint" type="string">
+  The 40-character OpenPGP fingerprint of this archive's signing key, or `null`.
+</ResponseField>
+
+<ResponseField name="suppress_subscription_notifications" type="boolean">
+  Whether to suppress subscription notification emails for private PPAs.
+</ResponseField>
+
+<ResponseField name="dependencies" type="object[]">
+  Archive dependencies recorded for this archive.
+</ResponseField>
+
+## List published source packages
+
+Use the `getPublishedSources` operation to list source packages published in an archive.
+
+```bash
+GET /api/devel/~{person}/+archive/{name}?ws.op=getPublishedSources&{params}
+```
+
+<ParamField query="source_name" type="string">
+  Filter by source package name. Use `exact_match=true` for exact matching; otherwise a prefix search is used.
+</ParamField>
+
+<ParamField query="version" type="string">
+  Filter by exact version string.
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter by publishing status. One of `Pending`, `Published`, `Superseded`, `Deleted`, `Obsolete`.
+</ParamField>
+
+<ParamField query="distro_series" type="string">
+  URL of a distro series resource to filter by series (e.g. `https://api.launchpad.net/devel/ubuntu/jammy`).
+</ParamField>
+
+<ParamField query="pocket" type="string">
+  Filter by pocket. One of `Release`, `Security`, `Updates`, `Proposed`, `Backports`.
+</ParamField>
+
+<ParamField query="exact_match" type="boolean" default="false">
+  Whether to match `source_name` exactly instead of using a prefix search.
+</ParamField>
+
+<ParamField query="created_since_date" type="string">
+  ISO 8601 datetime. Return only records created on or after this date.
+</ParamField>
+
+<ParamField query="component_name" type="string">
+  Filter by component (e.g. `main`, `universe`).
+</ParamField>
+
+<ParamField query="order_by_date" type="boolean" default="false">
+  If `true`, return newest results first. Recommended for incremental polling.
+</ParamField>
+
+```bash
+curl "https://api.launchpad.net/devel/~username/+archive/my-ppa?ws.op=getPublishedSources&status=Published"
+```
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+ppa = lp.load('https://api.launchpad.net/devel/~username/+archive/my-ppa')
+
+sources = ppa.getPublishedSources(
+    status='Published',
+    order_by_date=True
+)
+for pub in sources:
+    print(pub.source_package_name, pub.source_package_version, pub.pocket)
+```
+
+### Source publishing record fields
+
+<ResponseField name="status" type="string">
+  Publishing status: `Pending`, `Published`, `Superseded`, `Deleted`, `Obsolete`.
+</ResponseField>
+
+<ResponseField name="distro_series" type="object">
+  Link to the `IDistroSeries` this record is published into.
+</ResponseField>
+
+<ResponseField name="pocket" type="string">
+  Pocket name: `Release`, `Security`, `Updates`, `Proposed`, `Backports`.
+</ResponseField>
+
+<ResponseField name="date_published" type="string">
+  ISO 8601 datetime when this record was published.
+</ResponseField>
+
+<ResponseField name="scheduled_deletion_date" type="string">
+  ISO 8601 datetime when this record is scheduled for deletion.
+</ResponseField>
+
+<ResponseField name="source_package_name" type="string">
+  Name of the source package.
+</ResponseField>
+
+<ResponseField name="source_package_version" type="string">
+  Version string of the source package.
+</ResponseField>
+
+<ResponseField name="component_name" type="string">
+  Component name (e.g. `main`, `universe`).
+</ResponseField>
+
+<ResponseField name="section_name" type="string">
+  Section name (e.g. `libs`, `devel`).
+</ResponseField>
+
+<ResponseField name="display_name" type="string">
+  Human-readable text representation of this publishing record.
+</ResponseField>
+
+## List published binary packages
+
+Use the `getPublishedBinaries` operation to list binary packages published in an archive.
+
+<ParamField query="binary_name" type="string">
+  Filter by binary package name.
+</ParamField>
+
+<ParamField query="version" type="string">
+  Filter by exact version string.
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter by publishing status.
+</ParamField>
+
+<ParamField query="distro_arch_series" type="string">
+  URL of a `IDistroArchSeries` resource to filter by architecture.
+</ParamField>
+
+<ParamField query="pocket" type="string">
+  Filter by pocket.
+</ParamField>
+
+<ParamField query="exact_match" type="boolean" default="false">
+  Exact match for binary name.
+</ParamField>
+
+<ParamField query="created_since_date" type="string">
+  ISO 8601 datetime. Return only records created on or after this date.
+</ParamField>
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+ppa = lp.load('https://api.launchpad.net/devel/~username/+archive/my-ppa')
+
+binaries = ppa.getPublishedBinaries(
+    binary_name='libexample',
+    status='Published'
+)
+for pub in binaries:
+    print(pub.binary_package_name, pub.binary_package_version, pub.architecture_specific)
+```
+
+## Copy packages between archives
+
+Use the `copyPackage` operation to copy a source package from one archive to another.
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_with('my-app', 'production', version='devel')
+dest_ppa = lp.load('https://api.launchpad.net/devel/~username/+archive/my-ppa')
+source_ppa = lp.load('https://api.launchpad.net/devel/~otheruser/+archive/their-ppa')
+jammy = lp.distributions['ubuntu'].getSeries(name_or_version='jammy')
+
+dest_ppa.copyPackage(
+    source_name='mypackage',
+    version='1.0-1',
+    from_archive=source_ppa,
+    to_pocket='Release',
+    to_series=jammy,
+    include_binaries=True
+)
+```
+
+## Get the signing key
+
+The `getSigningKeyData` operation returns the ASCII-armored public signing key for an archive:
+
+```bash
+curl "https://api.launchpad.net/devel/~username/+archive/my-ppa?ws.op=getSigningKeyData"
+```
+
+```python
+key_data = ppa.getSigningKeyData()
+print(key_data)
+```

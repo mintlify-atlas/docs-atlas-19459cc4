@@ -1,0 +1,157 @@
+---
+title: 'Authentication'
+description: 'How to obtain an OAuth 1.0 token and authenticate API requests to Launchpad.'
+keywords: ['launchpad', 'api', 'oauth', 'token', 'authentication', 'authorization']
+---
+
+The Launchpad API uses [OAuth 1.0](https://oauth.net/1/) for authentication. You need an access token to make requests on behalf of a Launchpad account. Public data is accessible without a token.
+
+## Anonymous access
+
+Public resources (bugs, people, PPAs, repositories marked as public) can be read without a token:
+
+```bash
+curl https://api.launchpad.net/devel/bugs/1
+```
+
+With launchpadlib:
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously(
+    'my-app-name',
+    'production',
+    version='devel'
+)
+bug = lp.bugs[1]
+print(bug.title)
+```
+
+<Note>
+Anonymous access is rate-limited and cannot perform any write operations.
+</Note>
+
+## Getting a token with launchpadlib
+
+launchpadlib can obtain and manage tokens interactively. The first time you call `login_with`, it opens a browser to the Launchpad authorisation page. After you approve access, the token is cached on disk for future runs.
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_with(
+    'my-app-name',   # consumer key — identifies your application
+    'production',    # service root ('production' or 'staging')
+    version='devel'
+)
+```
+
+The cached credentials are stored in `~/.launchpadlib/credentials/` by default.
+
+## Non-interactive token acquisition for scripts
+
+For automated scripts that cannot open a browser, use `login_with` with a credentials file path and `credential_save_failed` callback, or store credentials you have already obtained:
+
+```python
+from launchpadlib.launchpad import Launchpad
+from launchpadlib.credentials import Credentials
+
+# Load credentials saved from a previous interactive login
+creds = Credentials.load_from_path('/path/to/credentials.json')
+lp = Launchpad(
+    creds,
+    service_root='https://api.launchpad.net/',
+    version='devel'
+)
+```
+
+Alternatively, create credentials non-interactively using the Launchpad web UI and then provide the token and secret directly:
+
+```python
+from launchpadlib.launchpad import Launchpad
+from launchpadlib.credentials import Credentials, AccessToken
+
+creds = Credentials(consumer_name='my-app')
+creds.access_token = AccessToken(
+    key='YOUR_ACCESS_TOKEN_KEY',
+    secret='YOUR_ACCESS_TOKEN_SECRET'
+)
+lp = Launchpad(
+    creds,
+    service_root='https://api.launchpad.net/',
+    version='devel'
+)
+```
+
+## Creating a token via the web UI
+
+<Steps>
+  <Step title="Log in to Launchpad">
+    Visit [https://launchpad.net/](https://launchpad.net/) and sign in.
+  </Step>
+  <Step title="Open your OAuth tokens page">
+    Navigate to `https://launchpad.net/~YOUR_USERNAME/+oauth-tokens` (replace `YOUR_USERNAME` with your Launchpad username).
+  </Step>
+  <Step title="Create a new token">
+    Click "Create a new access token". Enter a consumer name (the name of your application) and select the desired access level.
+  </Step>
+  <Step title="Note the token and secret">
+    Copy the access token key and secret. The secret is displayed only once.
+  </Step>
+</Steps>
+
+## Token scopes (access levels)
+
+When a user authorises an application, they choose an access level. The available levels are:
+
+| Access level | Description |
+|---|---|
+| `READ_PUBLIC` | Read access to public data only. No authentication for writes. |
+| `READ_PRIVATE` | Read access to public and private data the user can see. |
+| `WRITE_PUBLIC` | Read and write access to public data. |
+| `WRITE_PRIVATE` | Read and write access to all data the user can access. |
+
+<Warning>
+The access level is set when the token is created and cannot be changed afterwards. Request the minimum level your application needs.
+</Warning>
+
+## Scoped tokens (project or package scope)
+
+Access tokens can optionally be restricted to a specific project, project group, distribution, or source package. A scoped token can only access resources within that context. This is enforced server-side and returns a `401 Unauthorized` response if a scoped token is used to access resources outside its scope.
+
+## Sending an authenticated request
+
+The Launchpad API accepts OAuth 1.0 credentials in the `Authorization` request header. The signature method is `PLAINTEXT` (the token secret is sent directly — always use HTTPS).
+
+Authorization header format:
+
+```
+Authorization: OAuth realm="https://api.launchpad.net",
+  oauth_consumer_key="my-app",
+  oauth_token="TOKEN_KEY",
+  oauth_signature_method="PLAINTEXT",
+  oauth_signature="TOKEN_SECRET&",
+  oauth_timestamp="UNIX_TIMESTAMP",
+  oauth_nonce="RANDOM_STRING",
+  oauth_version="1.0"
+```
+
+Example with curl:
+
+```bash
+TOKEN_KEY="your-token-key"
+TOKEN_SECRET="your-token-secret"
+CONSUMER="my-app"
+TIMESTAMP=$(date +%s)
+NONCE=$(openssl rand -hex 8)
+
+curl \
+  -H "Authorization: OAuth realm=\"https://api.launchpad.net\",oauth_consumer_key=\"$CONSUMER\",oauth_token=\"$TOKEN_KEY\",oauth_signature_method=\"PLAINTEXT\",oauth_signature=\"$TOKEN_SECRET&\",oauth_timestamp=\"$TIMESTAMP\",oauth_nonce=\"$NONCE\",oauth_version=\"1.0\"" \
+  https://api.launchpad.net/devel/bugs/1
+```
+
+## Revoking a token
+
+You can revoke tokens at any time from the web UI at `https://launchpad.net/~YOUR_USERNAME/+oauth-tokens`. Click the "Revoke" button next to the token you want to remove.
+
+Revoked tokens return `401 Unauthorized` on all subsequent API requests.

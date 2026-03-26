@@ -1,0 +1,241 @@
+---
+title: 'People'
+description: 'Look up people and teams, list team members, and search for users using the Launchpad web service API.'
+keywords: ['launchpad', 'api', 'people', 'teams', 'person', 'user', 'members']
+---
+
+The people API exposes Launchpad user accounts and teams. In Launchpad, both individual people and teams are represented by the same resource type (`IPerson`).
+
+## Get a person or team
+
+```bash
+GET /api/devel/~{name}
+```
+
+```bash
+curl https://api.launchpad.net/devel/~sabdfl
+```
+
+Or via the `people` collection:
+
+```bash
+curl https://api.launchpad.net/devel/people/sabdfl
+```
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+person = lp.people['sabdfl']
+print(person.display_name, person.name)
+print(person.web_link)
+```
+
+### Person fields
+
+<ResponseField name="name" type="string" required>
+  The unique Launchpad username (lowercase, letters, numbers, dots, hyphens, plus signs).
+</ResponseField>
+
+<ResponseField name="display_name" type="string" required>
+  The name as displayed throughout Launchpad. Usually a full name.
+</ResponseField>
+
+<ResponseField name="is_team" type="boolean">
+  Whether this person record represents a team.
+</ResponseField>
+
+<ResponseField name="is_valid" type="boolean">
+  Whether this is an active user or team account.
+</ResponseField>
+
+<ResponseField name="private" type="boolean">
+  Whether this is a private team (visible only to members).
+</ResponseField>
+
+<ResponseField name="visibility" type="string">
+  Visibility setting. One of `Public`, `Private`.
+</ResponseField>
+
+<ResponseField name="karma" type="number">
+  Total karma score for this person.
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Free-text description of this person or team.
+</ResponseField>
+
+<ResponseField name="date_created" type="string">
+  ISO 8601 datetime when this account was created.
+</ResponseField>
+
+<ResponseField name="is_ubuntu_coc_signer" type="boolean">
+  Whether this person has signed the Ubuntu Code of Conduct.
+</ResponseField>
+
+<ResponseField name="preferred_email_address" type="object">
+  Link to the preferred `IEmailAddress`, or `null` if hidden or not set.
+</ResponseField>
+
+<ResponseField name="confirmed_email_addresses" type="object[]">
+  Collection of confirmed email address objects. Visible only to the account owner and Launchpad admins.
+</ResponseField>
+
+<ResponseField name="hide_email_addresses" type="boolean">
+  Whether this person has chosen to hide their email addresses from other users.
+</ResponseField>
+
+<ResponseField name="sshkeys" type="object[]">
+  Collection of SSH keys registered by this person.
+</ResponseField>
+
+<ResponseField name="gpg_keys" type="object[]">
+  Collection of active OpenPGP keys registered by this person.
+</ResponseField>
+
+<ResponseField name="wiki_names" type="object[]">
+  Collection of associated wiki names.
+</ResponseField>
+
+<ResponseField name="irc_nicknames" type="object[]">
+  Collection of IRC identifiers.
+</ResponseField>
+
+<ResponseField name="social_accounts" type="object[]">
+  Collection of social account links.
+</ResponseField>
+
+<ResponseField name="languages" type="object[]">
+  Languages known by this person.
+</ResponseField>
+
+<ResponseField name="team_owner" type="object">
+  For teams: link to the `IPerson` who owns this team.
+</ResponseField>
+
+<ResponseField name="memberships_details" type="object[]">
+  Collection of `ITeamMembership` objects for teams this person is an active member of.
+</ResponseField>
+
+## List team members
+
+Team membership can be accessed via the `members` and `members_details` collections on a team resource:
+
+```bash
+GET /api/devel/~{team-name}/members
+```
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+team = lp.people['ubuntu-dev']
+
+# Iterate members
+for member in team.members:
+    print(member.name, member.display_name)
+```
+
+For detailed membership information including join dates and statuses:
+
+```python
+for membership in team.members_details:
+    print(
+        membership.person.name,
+        membership.status,
+        membership.date_joined
+    )
+```
+
+### Team membership fields
+
+<ResponseField name="person" type="object">
+  Link to the `IPerson` who is a member.
+</ResponseField>
+
+<ResponseField name="team" type="object">
+  Link to the team.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Membership status. One of `Approved`, `Invited`, `Declined`, `Proposed`, `Deactivated`, `Expired`, `Admin`.
+</ResponseField>
+
+<ResponseField name="date_joined" type="string">
+  ISO 8601 datetime when the person joined the team.
+</ResponseField>
+
+<ResponseField name="date_expires" type="string">
+  ISO 8601 datetime when this membership expires, or `null` if it does not expire.
+</ResponseField>
+
+## Search for people
+
+Use the `find` operation on the `people` collection to search by name or display name:
+
+```bash
+GET /api/devel/people?ws.op=find&text={query}
+```
+
+```bash
+curl "https://api.launchpad.net/devel/people?ws.op=find&text=sabdfl"
+```
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+results = lp.people.find(text='mark shuttle')
+for person in results:
+    print(person.name, person.display_name)
+```
+
+<ParamField query="text" type="string" required>
+  Search string matched against Launchpad names and display names.
+</ParamField>
+
+## Get a person's PPAs
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+person = lp.people['username']
+
+for ppa in person.ppas:
+    print(ppa.name, ppa.displayname, ppa.private)
+```
+
+Or look up a specific PPA by name (requires the distribution as a parameter):
+
+```python
+ubuntu = lp.distributions['ubuntu']
+ppa = person.getPPAByName(distribution=ubuntu, name='my-ppa')
+print(ppa.reference)
+```
+
+## Get a person's Git repositories
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+person = lp.people['username']
+
+for repo in person.git_repositories:
+    print(repo.unique_name, repo.git_https_url)
+```
+
+## Get a person's merge proposals
+
+```python
+from launchpadlib.launchpad import Launchpad
+
+lp = Launchpad.login_anonymously('my-app', 'production', version='devel')
+person = lp.people['username']
+
+# Active proposals authored by this person
+proposals = person.getMergeProposals(status=['Needs review', 'Code approved'])
+for mp in proposals:
+    print(mp.source_git_path, '->', mp.target_git_path, mp.queue_status)
+```

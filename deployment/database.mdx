@@ -1,0 +1,190 @@
+---
+title: "Database Setup & Schema"
+description: "PostgreSQL setup, schema management, and the ORM pattern used in Launchpad"
+---
+
+Launchpad requires PostgreSQL for its primary application database, a separate session database, and several template databases used by the test suite. Schema evolution is managed through a numbered patch system.
+
+## PostgreSQL Requirements
+
+Launchpad requires a recent version of PostgreSQL (the project targets the version shipped with the supported Ubuntu LTS). The development setup creates the following databases:
+
+| Database | Purpose |
+|---|---|
+| `launchpad_empty` | Base schema, no data; used as a template |
+| `launchpad_dev` | Development database with dev sample data |
+| `launchpad_dev_template` | Template for `launchpad_dev` |
+| `launchpad_ftest_template` | Template for functional tests (cloned per test run) |
+| `launchpad_ftest_playground` | Interactive copy for `LPCONFIG=test-playground` |
+| `session_dev` | Session storage for the dev appserver |
+| `session_ftest` | Session storage for functional tests |
+
+All databases are created by the schema Makefile using `utilities/pgmassacre.py`, which drops and recreates databases atomically using `createdb -T <template>`.
+
+## Initial Schema Setup
+
+Run the following from the repository root:
+
+```bash
+make schema
+```
+
+This delegates to `database/schema/Makefile` and performs the full setup sequence:
+
+```bash
+# Equivalent manual steps performed by make schema:
+cd database/schema
+
+# 1. Create launchpad_empty from baseline
+psql -d launchpad_empty -f launchpad-2211-00-0.sql
+
+# 2. Apply all pending patches
+./upgrade.py --separate-sessions -d launchpad_empty
+
+# 3. Apply security grants
+./security.py -q -d launchpad_empty --grant-create-on-public-schema
+
+# 4. Load test sample data → launchpad_ftest_template
+# 5. Load dev sample data  → launchpad_dev_template → launchpad_dev
+```
+
+<Warning>
+  The `create` target must be run as a PostgreSQL superuser, or your user must have `CREATEDB` privileges. If you see permission errors, prefix with `sudo -u postgres`:
+
+  ```bash
+  sudo -u postgres make -C database/schema create
+  ```
+</Warning>
+
+## The Patch Numbering System
+
+Schema changes are applied as numbered SQL patch files. The naming convention is:
+
+```
+patch-<major>-<minor>-<sub>.sql
+```
+
+For example:
+
+```
+patch-2211-00-0.sql   ← baseline marker
+patch-2211-53-0.sql   ← patch 53, sub-patch 0
+patch-2211-53-1.sql   ← additional change in the same release
+```
+
+The `major` component (`2211`) matches the baseline revision. `minor` is a monotonically increasing patch number. `sub` allows multiple related changes to be applied in order within the same minor version.
+
+Each patch file follows this structure:
+
+```sql
+-- Copyright 2024 Canonical Ltd. ...
+
+SET client_min_messages=ERROR;
+
+-- DDL changes go here
+ALTER TABLE LibraryFileContent
+    ADD COLUMN sha512 character(128);
+
+COMMENT ON COLUMN libraryfilecontent.sha512
+    IS 'The SHA-512 digest of the file''s contents';
+
+-- Always end by recording the revision
+INSERT INTO LaunchpadDatabaseRevision VALUES (2211, 53, 0);
+```
+
+The `upgrade.py` script discovers all `patch-*.sql` files, compares them against the `LaunchpadDatabaseRevision` table, and applies any that haven't been recorded yet.
+
+## Applying Patches to an Existing Database
+
+To apply new patches to an already-running dev database without recreating it from scratch:
+
+```bash
+# Apply only outstanding patches
+python database/schema/upgrade.py -d launchpad_dev
+
+# Apply with separate transactions per patch (safer for long-running patches)
+python database/schema/upgrade.py --separate-sessions -d launchpad_dev
+```
+
+## Regenerating Sample Data
+
+The sample data files (`database/sampledata/current.sql` and `current-dev.sql`) are SQL dumps used to populate the template databases. To regenerate them from the current live databases:
+
+```bash
+make newsampledata
+```
+
+This runs `database/schema/Makefile newsampledata` which dumps `launchpad_dev` and `launchpad_ftest_playground` using `pg_dump --column-inserts`.
+
+To rebuild FTI (full-text indexes) on the dev database:
+
+```bash
+make rebuildfti
+```
+
+Which runs:
+
+```bash
+bin/py database/schema/fti.py -d launchpad_dev --force
+```
+
+## Database Replication Overview
+
+In production, Launchpad uses PostgreSQL streaming replication with a primary (read-write) and one or more standbys (read-only). The `[database]` config section exposes both:
+
+```ini
+[database]
+rw_main_primary: dbname=launchpad_dev
+rw_main_standby: dbname=launchpad_dev
+max_usable_lag: 120
+```
+
+The `max_usable_lag` key (in seconds) prevents the application from using standby databases if replication lag exceeds the threshold. The `replicated-development` config instance in `configs/replicated-development/` provides a local two-database setup for replication testing.
+
+The `set_role_after_connecting` option controls how database roles are acquired:
+
+```ini
+# If True: connect as a shared user, then SET ROLE to the target role
+# If False: connect directly as the target dbuser (default)
+set_role_after_connecting: False
+```
+
+## The Storm ORM
+
+Launchpad uses [Storm](https://storm.canonical.com/) as its ORM, accessed through a thin wrapper. Model classes inherit from `StormBase` and declare their table mapping with `__storm_table__`:
+
+```python
+from lp.services.database.stormbase import StormBase
+from storm.locals import Int, Unicode, Reference
+
+class Person(StormBase):
+    __storm_table__ = 'Person'
+
+    id = Int(primary=True)
+    name = Unicode()
+    display_name = Unicode()
+```
+
+Database connections are managed per-process via `dbconfig.override()`, which sets the `dbuser` and `isolation_level` for the process's connection. Each process (appserver, librarian, scripts) uses a distinct PostgreSQL role with the minimum required privileges. These roles and grants are defined in `database/schema/security.cfg` and applied by `security.py`.
+
+<Info>
+  The Storm cache type and size are configurable per-process. The default (`generational`) with a cache size of 10,000 objects is appropriate for the web appserver. Long-running scripts may increase `storm_cache_size` if database performance is a concern.
+</Info>
+
+## Session Database
+
+User sessions are stored in a separate PostgreSQL database (`session_dev` in development) to allow the application database to be freely reset without losing active sessions. The session connection is configured separately:
+
+```ini
+[launchpad_session]
+cookie: launchpad_dev
+database: dbname=session_dev
+dbuser: session
+```
+
+The session schema is a simple two-table structure loaded from `database/schema/session.sql`:
+
+```bash
+# Recreate just the session database
+psql -d session_dev -f database/schema/launchpad_session.sql
+```

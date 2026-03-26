@@ -1,0 +1,255 @@
+---
+title: "Local Development Setup"
+description: "Set up a local development environment to work on Launchpad"
+---
+
+This guide walks through setting up a local development environment for working on the Launchpad codebase. Launchpad is a large Python/Zope application and has a number of prerequisites that must be in place before the dev server can run.
+
+<Warning>
+  Launchpad development is officially supported on **Ubuntu** only. The toolchain, system packages, and database setup scripts assume a Debian-based environment. Running on other distributions or macOS is not supported.
+</Warning>
+
+## System Requirements
+
+- **OS:** Ubuntu (current LTS recommended)
+- **Python:** 3.8 (target version used by the project, as declared in `pyproject.toml` and `tox.ini`)
+- **PostgreSQL:** Required for the main `launchpad_dev` and session databases
+- **Node.js / Yarn:** Required to build JavaScript assets
+- **Git:** For cloning the repository
+
+## Required System Packages
+
+Launchpad links several system-installed Python packages directly into the virtualenv rather than installing them via pip. These packages have ABI dependencies or are managed by the distribution's security team:
+
+```bash
+sudo apt-get install \
+  python3-apt \
+  python3-pil \
+  python3-convoy
+```
+
+The full list is maintained in `system-packages.txt` at the repository root:
+
+| Package | Used by |
+|---|---|
+| `apt` | launchpad-buildd |
+| `apt_inst` | Soyuz — parsing Debian packages |
+| `apt_pkg` | Soyuz — comparing Debian version numbers |
+| `aptsources` | Tests — parsing `sources.list` entries |
+| `convoy` | `utilities/js-deps` |
+| `PIL` | `lp.services.fields`, `lp.services.spriteutils` |
+
+Additionally, install the broader set of build-time dependencies:
+
+```bash
+sudo apt-get install \
+  build-essential \
+  postgresql \
+  apache2 \
+  memcached \
+  rabbitmq-server \
+  bzr \
+  git
+```
+
+## Setup Steps
+
+<Steps>
+  <Step title="Clone the repository">
+    The canonical source is on Launchpad's own Git hosting:
+
+    ```bash
+    git clone https://git.launchpad.net/launchpad
+    cd launchpad
+    ```
+  </Step>
+
+  <Step title="Bootstrap the download cache">
+    Launchpad uses an offline pip install from a vendored dependency cache. The cache lives in a separate repository and must be cloned before the virtualenv can be created:
+
+    ```bash
+    make bootstrap
+    ```
+
+    This clones `https://git.launchpad.net/lp-source-dependencies` into `./download-cache/`. All pip wheels are sourced from this cache — no network access is needed after this step.
+
+    <Note>
+      If you already have the cache elsewhere (e.g. shared between checkouts), run `utilities/link-external-sourcecode` instead of `make bootstrap` to set up symlinks.
+    </Note>
+  </Step>
+
+  <Step title="Create the Python virtualenv">
+    Install all Python dependencies into a local `env/` virtualenv:
+
+    ```bash
+    make install
+    ```
+
+    This runs `virtualenv` using the system `python3`, installs packages from `requirements/setup.txt` and `requirements/combined.txt`, and installs Launchpad itself in editable mode. After completion, `bin/` is symlinked to `env/bin/`.
+
+    <Tip>
+      The `Makefile` sets `PIP_NO_INDEX=1` by default so pip only searches the local download cache. Pass `make PIP_NO_INDEX= install` if you need pip to reach the internet.
+    </Tip>
+  </Step>
+
+  <Step title="Link system packages into the virtualenv">
+    The `compile` step (run automatically by most targets) links the system Python packages listed in `system-packages.txt` into the virtualenv's `site-packages`:
+
+    ```bash
+    make compile
+    ```
+
+    This also runs `utilities/relocate-virtualenv env` to make the virtualenv path-independent and regenerates the Twisted plugin cache.
+  </Step>
+
+  <Step title="Build JavaScript assets">
+    Launchpad's frontend uses YUI and a custom build pipeline driven by Yarn:
+
+    ```bash
+    make jsbuild
+    make css_combine
+    ```
+
+    Or build everything in one step:
+
+    ```bash
+    make build
+    ```
+
+    `make build` runs `compile`, `apidoc`, `jsbuild`, and `css_combine`. The JS build output goes to `build/js/` and the CSS output goes to `lib/canonical/launchpad/icing/`.
+
+    <Note>
+      Yarn is not installed globally. The `Makefile` extracts a pinned Yarn `v1.22.4` from the download cache into `build/js/yarn/`.
+    </Note>
+  </Step>
+
+  <Step title="Set up the database">
+    Create the `launchpad_dev`, `launchpad_ftest_template`, and session databases with sample data:
+
+    ```bash
+    make schema
+    ```
+
+    This runs `make -C database/schema` which:
+    1. Creates a `launchpad_empty` database from the baseline SQL dump (`launchpad-2211-00-0.sql`)
+    2. Applies all numbered schema patches (`patch-2211-NN-N.sql`)
+    3. Applies security grants (`security.py`)
+    4. Creates `launchpad_ftest_template` with test sample data
+    5. Creates `launchpad_dev` with dev sample data
+    6. Creates `session_dev` and `session_ftest` session databases
+
+    <Warning>
+      The schema `create` target must be run as a PostgreSQL superuser or with `sudo -u postgres`. If your user already has `CREATEDB` privilege, the plain `make schema` will work.
+    </Warning>
+  </Step>
+
+  <Step title="Prepare the working tree">
+    Set up log directories, codehosting directories, and Apache symlinks:
+
+    ```bash
+    make inplace
+    ```
+
+    This creates `logs/`, the codehosting root at `/var/tmp/bazaar.launchpad.test/`, and symlinks the JS build to the Convoy root at `/srv/launchpad.test/convoy` (if that directory exists).
+  </Step>
+
+  <Step title="Run Launchpad locally">
+    Start the application server along with its core services (Librarian, Bing web service stub, Memcached, RabbitMQ):
+
+    ```bash
+    make run
+    ```
+
+    This executes:
+
+    ```bash
+    bin/run -r librarian,bing-webservice,memcached,rabbitmq -i development
+    ```
+
+    The `-r` flag specifies which auxiliary services to launch alongside the main appserver. The `-i` flag selects the config instance (defaults to `development` via the `LPCONFIG` Makefile variable).
+
+    To start all services including SFTP and code browsing:
+
+    ```bash
+    make run_all
+    ```
+
+    The main site is served at `http://launchpad.test/` (requires `/etc/hosts` entries, which `make install` configures via Apache).
+
+    To run with gdb attached:
+
+    ```bash
+    make start-gdb
+    ```
+  </Step>
+
+  <Step title="Run the test suite">
+    Run all tests in-place (without a full rebuild):
+
+    ```bash
+    bin/test -vv
+    ```
+
+    Or via Make:
+
+    ```bash
+    make test_inplace
+    ```
+
+    Run a specific test module:
+
+    ```bash
+    bin/test -m lp.services.config.tests -vv
+    ```
+
+    Run only functional tests:
+
+    ```bash
+    make ftest_inplace
+    ```
+
+    Run linting and type checks with tox (from outside the LXC container):
+
+    ```bash
+    tox -e lint
+    tox -e mypy
+    ```
+
+    The `mypy` environment targets a subset of modules: `lib/lp/answers`, `lib/lp/app`, `lib/lp/archivepublisher`, `lib/lp/archiveuploader`, `lib/lp/buildmaster`, and others listed in `tox.ini`.
+  </Step>
+</Steps>
+
+## Useful Make Targets Reference
+
+<CardGroup cols={2}>
+  <Card title="make run" icon="play">
+    Start the appserver with Librarian, Memcached, RabbitMQ, and Bing stub.
+  </Card>
+  <Card title="make run_all" icon="server">
+    Start all services including SFTP and code browsing.
+  </Card>
+  <Card title="make schema" icon="database">
+    (Re)create all development and test databases with sample data.
+  </Card>
+  <Card title="make build" icon="hammer">
+    Compile Python, generate API docs, build JS, and combine CSS.
+  </Card>
+  <Card title="make stop" icon="square">
+    Kill the Librarian and main Launchpad processes.
+  </Card>
+  <Card title="make clean" icon="trash">
+    Remove build artifacts, virtualenv, JS build, and tmp directories.
+  </Card>
+</CardGroup>
+
+## Interactive Shells
+
+Launchpad provides IPython-based harnesses for interactive exploration:
+
+```bash
+# Python shell pre-loaded with Launchpad ZCML
+bin/harness
+
+# IPython shell
+bin/iharness
+```
